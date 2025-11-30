@@ -19,8 +19,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ErrDiffsFound is returned when differences are detected between directories.
-var ErrDiffsFound = errors.New("differences found")
+// Error definitions for specific exit codes
+var (
+	ErrDiffsFound = errors.New("divergent differences found")
+	ErrASubsetB   = errors.New("dir A is a subset of dir B")
+	ErrBSubsetA   = errors.New("dir B is a subset of dir A")
+)
 
 // ChangeType represents the type of difference found
 type ChangeType int
@@ -41,11 +45,18 @@ type DiffItem struct {
 func main() {
 	app := newApp()
 	if err := app.Run(context.Background(), os.Args); err != nil {
-		// Exit Code 1: Differences found (clean exit, no error message printed)
+		// Handle specific exit codes based on relationship
+		if errors.Is(err, ErrASubsetB) {
+			os.Exit(3)
+		}
+		if errors.Is(err, ErrBSubsetA) {
+			os.Exit(4)
+		}
 		if errors.Is(err, ErrDiffsFound) {
 			os.Exit(1)
 		}
-		// Exit Code 2: Runtime error (print message)
+
+		// Runtime errors (Code 2)
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
 	}
@@ -177,7 +188,6 @@ func newApp() *cli.Command {
 						diff, err := compareFileContent(pathA, pathB)
 						if err != nil {
 							if verbose {
-								// Best effort logging if hashing fails
 								fmt.Fprintf(cmd.ErrWriter, "Error comparing %s: %v\n", relPath, err)
 							}
 							continue
@@ -207,6 +217,10 @@ func newApp() *cli.Command {
 			green := color.New(color.FgGreen).SprintfFunc()
 			yellow := color.New(color.FgYellow).SprintfFunc()
 
+			hasAdded := false
+			hasRemoved := false
+			hasModified := false
+
 			for _, item := range results {
 				suffix := ""
 				if item.IsDir {
@@ -215,17 +229,42 @@ func newApp() *cli.Command {
 
 				switch item.Type {
 				case Added:
+					hasAdded = true
 					fmt.Fprintf(cmd.Writer, "%s %s%s\n", green("+"), item.Path, suffix)
 				case Removed:
+					hasRemoved = true
 					fmt.Fprintf(cmd.Writer, "%s %s%s\n", red("-"), item.Path, suffix)
 				case Modified:
+					hasModified = true
 					fmt.Fprintf(cmd.Writer, "%s %s%s\n", yellow("~"), item.Path, suffix)
 				}
 			}
 
-			// Return specific error to signal exit code 1 if differences were found
-			if len(results) > 0 {
-				return ErrDiffsFound
+			// 4. Determine Exit Code
+			if len(results) == 0 {
+				return nil // Code 0: Identical
+			}
+
+			if hasModified {
+				return ErrDiffsFound // Code 1: Modifications exist (cannot be subset)
+			}
+
+			if hasAdded && hasRemoved {
+				return ErrDiffsFound // Code 1: Divergent (Both have unique files)
+			}
+
+			if hasAdded {
+				// No removed, no modified, only Added.
+				// Dir A is missing things that Dir B has.
+				// A is a subset of B.
+				return ErrASubsetB // Code 3
+			}
+
+			if hasRemoved {
+				// No added, no modified, only Removed.
+				// Dir A has things Dir B doesn't.
+				// B is a subset of A.
+				return ErrBSubsetA // Code 4
 			}
 
 			return nil

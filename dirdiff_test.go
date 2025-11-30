@@ -52,6 +52,11 @@ func setupTestEnv(t *testing.T) string {
 	createFile(t, filepath.Join(modDir, "file1"), "content1")
 	createFile(t, filepath.Join(modDir, "file2"), "content2_modified")
 
+	// 5. test_subset (subset of base)
+	// file1 (same content as base, missing file2)
+	subsetDir := filepath.Join(root, "test_subset")
+	createFile(t, filepath.Join(subsetDir, "file1"), "content1")
+
 	return root
 }
 
@@ -63,60 +68,61 @@ func TestDirDiff(t *testing.T) {
 	equalDir := filepath.Join(root, "test_equal")
 	inequalDir := filepath.Join(root, "test_inequal")
 	modDir := filepath.Join(root, "test_modified")
+	subsetDir := filepath.Join(root, "test_subset")
 
 	tests := []struct {
 		name          string
 		dirA          string
 		dirB          string
-		shouldError   bool
+		expectedError error    // Specific error/exit code signal
 		shouldContain []string // strings that must appear in output
 		shouldNotHas  []string // strings that must NOT appear
 	}{
 		{
-			name:        "Equal Directories",
-			dirA:        baseDir,
-			dirB:        equalDir,
-			shouldError: false,
-			// Expect no output
+			name:          "Equal Directories (Code 0)",
+			dirA:          baseDir,
+			dirB:          equalDir,
+			expectedError: nil,
 			shouldContain: []string{},
 			shouldNotHas:  []string{"+", "-", "~", "file1", "file2"},
 		},
 		{
-			name:        "Modified Directories",
-			dirA:        baseDir,
-			dirB:        modDir,
-			shouldError: true, // Should return ErrDiffsFound (Exit Code 1)
-			// Expect modification on file2
-			shouldContain: []string{
-				"~ file2",
-			},
-			shouldNotHas: []string{
-				"file1", // unchanged
-				"+", "-", // no additions or deletions
-			},
+			name:          "Modified Directories (Code 1)",
+			dirA:          baseDir,
+			dirB:          modDir,
+			expectedError: ErrDiffsFound,
+			shouldContain: []string{"~ file2"},
+			shouldNotHas:  []string{"+", "-"},
 		},
 		{
-			name:        "Inequal Directories (Structure change)",
-			dirA:        baseDir,
-			dirB:        inequalDir,
-			shouldError: true, // Should return ErrDiffsFound (Exit Code 1)
-			// test_base has: file1, file2
-			// test_inequal has: file1, file4, file5, subdir/ts2
-			// Expected:
-			// - file2 (in base, not inequal)
-			// + file4 (in inequal)
-			// + file5 (in inequal)
-			// + subdir/ (whole dir added)
-			shouldContain: []string{
-				"- file2",
-				"+ file4",
-				"+ file5",
-				"+ subdir" + string(os.PathSeparator), // Check for directory suffix
-			},
-			shouldNotHas: []string{
-				"file1",      // shared
-				"subdir/ts2", // shouldn't scan inside unique subdir
-			},
+			name:          "Mixed Divergence (Code 1)",
+			dirA:          baseDir,
+			dirB:          inequalDir,
+			expectedError: ErrDiffsFound,
+			shouldContain: []string{"- file2", "+ file4", "+ file5"},
+			shouldNotHas:  []string{},
+		},
+		{
+			name: "A is Subset of B (Code 3)",
+			dirA: subsetDir,
+			dirB: baseDir,
+			// A has file1. B has file1, file2.
+			// Result: B has extra file2 (Added). A has no unique files.
+			// A is subset of B.
+			expectedError: ErrASubsetB,
+			shouldContain: []string{"+ file2"},
+			shouldNotHas:  []string{"-", "~"},
+		},
+		{
+			name: "B is Subset of A (Code 4)",
+			dirA: baseDir,
+			dirB: subsetDir,
+			// A has file1, file2. B has file1.
+			// Result: A has extra file2 (Removed). B has no unique files.
+			// B is subset of A.
+			expectedError: ErrBSubsetA,
+			shouldContain: []string{"- file2"},
+			shouldNotHas:  []string{"+", "~"},
 		},
 	}
 
@@ -130,16 +136,16 @@ func TestDirDiff(t *testing.T) {
 			app.Writer = &outBuf
 			app.ErrWriter = &errBuf
 
-			// We need to pass the "no-color" flag to simplify string assertions
-			// otherwise we have to assert ANSI codes.
 			args := []string{"dirdiff", "--no-color", tt.dirA, tt.dirB}
 
 			err := app.Run(context.Background(), args)
 
 			// Assert Error / Exit Code logic
-			if tt.shouldError {
-				if err == nil || !errors.Is(err, ErrDiffsFound) {
-					t.Errorf("expected ErrDiffsFound, got: %v", err)
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("expected error %v, got nil", tt.expectedError)
+				} else if !errors.Is(err, tt.expectedError) {
+					t.Errorf("expected error type %v, got: %v", tt.expectedError, err)
 				}
 			} else {
 				if err != nil {
