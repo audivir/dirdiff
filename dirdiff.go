@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -77,6 +78,11 @@ func newApp() *cli.Command {
 				Aliases: []string{"e"},
 				Usage:   "Glob patterns to exclude",
 			},
+			&cli.StringSliceFlag{
+				Name:    "fast",
+				Aliases: []string{"f"},
+				Usage:   "Glob patterns to skip full SHA256 check (first 1MB SHA256 only)",
+			},
 			&cli.IntFlag{
 				Name:    "workers",
 				Aliases: []string{"w", "j"},
@@ -111,17 +117,18 @@ func newApp() *cli.Command {
 
 			includes := cmd.StringSlice("include")
 			excludes := cmd.StringSlice("exclude")
+			fasts := cmd.StringSlice("fast")
 			workers := cmd.Int("workers")
 			verbose := cmd.Bool("verbose")
 			noColor := cmd.Bool("no-color")
 
-			if noColor {
-				color.NoColor = true
-			}
-
-			includeGlobs, excludeGlobs, err := processGlobs(includes, excludes)
+			fastGlobs, includeGlobs, excludeGlobs, err := processGlobs(fasts, includes, excludes)
 			if err != nil {
 				return err
+			}
+
+			if noColor {
+				color.NoColor = true
 			}
 
 			if verbose {
@@ -185,7 +192,7 @@ func newApp() *cli.Command {
 						pathA := filesA[relPath]
 						pathB := filesB[relPath]
 
-						diff, err := compareFileContent(pathA, pathB)
+						diff, err := compareFileContent(pathA, pathB, relPath, fastGlobs)
 						if err != nil {
 							if verbose {
 								fmt.Fprintf(cmd.ErrWriter, "Error comparing %s: %v\n", relPath, err)
@@ -371,7 +378,7 @@ func scanDirectory(root, otherRoot string, includes, excludes []glob.Glob, verbo
 	return files, uniqueDirs, err
 }
 
-func compareFileContent(pathA, pathB string) (bool, error) {
+func compareFileContent(pathA, pathB, relPath string, fastGlobs []glob.Glob) (bool, error) {
 	infoA, err := os.Stat(pathA)
 	if err != nil {
 		return false, err
@@ -386,12 +393,12 @@ func compareFileContent(pathA, pathB string) (bool, error) {
 		return true, nil
 	}
 
-	// 2. Medium check: First 1KB MD5
-	hashA, err := hashFirstKB(pathA)
+	// 2. Medium check: First 1KB MD5 (Always done first)
+	hashA, err := computeHash(pathA, md5.New(), 1024)
 	if err != nil {
 		return false, err
 	}
-	hashB, err := hashFirstKB(pathB)
+	hashB, err := computeHash(pathB, md5.New(), 1024)
 	if err != nil {
 		return false, err
 	}
@@ -399,12 +406,22 @@ func compareFileContent(pathA, pathB string) (bool, error) {
 		return true, nil
 	}
 
-	// 3. Slow check: Full SHA256
-	shaA, err := hashSHA256(pathA)
+	// Check fast globs to determine if we use 1MB SHA partial check
+	filename := filepath.Base(relPath)
+	limit := int64(0)
+	for _, g := range fastGlobs {
+		if g.Match(filename) {
+			limit = 1024 * 1024
+			break
+		}
+	}
+
+	// 2. check SHA256 (1MB or full depending on limit)
+	shaA, err := computeHash(pathA, sha256.New(), limit)
 	if err != nil {
 		return false, err
 	}
-	shaB, err := hashSHA256(pathB)
+	shaB, err := computeHash(pathB, sha256.New(), limit)
 	if err != nil {
 		return false, err
 	}
@@ -412,53 +429,51 @@ func compareFileContent(pathA, pathB string) (bool, error) {
 	return shaA != shaB, nil
 }
 
-func hashFirstKB(path string) (string, error) {
+// computeHash calculates the hash of a file.
+// h: The hash algorithm to use (e.g., md5.New(), sha256.New()).
+// limit: The maximum number of bytes to read. If <= 0, reads the entire file.
+func computeHash(path string, h hash.Hash, limit int64) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 
-	h := md5.New()
-	buf := make([]byte, 1024)
-	n, err := io.ReadFull(f, buf)
-	if err != nil && err != io.ErrUnexpectedEOF {
+	var r io.Reader = f
+	if limit > 0 {
+		r = io.LimitReader(f, limit)
+	}
+
+	if _, err := io.Copy(h, r); err != nil {
 		return "", err
 	}
-	h.Write(buf[:n])
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func hashSHA256(path string) (string, error) {
-	f, err := os.Open(path)
+func compileGlobs(patterns []string) ([]glob.Glob, error) {
+	var globs []glob.Glob
+	for _, p := range patterns {
+		g, err := glob.Compile(p)
+		if err != nil {
+			return nil, fmt.Errorf("bad pattern %q: %w", p, err)
+		}
+		globs = append(globs, g)
+	}
+	return globs, nil
+}
+
+func processGlobs(includes []string, excludes []string, fasts []string) ([]glob.Glob, []glob.Glob, []glob.Glob, error) {
+	includeGlobs, err := compileGlobs(includes)
 	if err != nil {
-		return "", err
+		return nil, nil, nil, fmt.Errorf("include error: %w", err)
 	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	excludeGlobs, err := compileGlobs(excludes)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("exclude error: %w", err)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func processGlobs(includes []string, excludes []string) ([]glob.Glob, []glob.Glob, error) {
-	var includeGlobs []glob.Glob
-	for _, p := range includes {
-		g, err := glob.Compile(p)
-		if err != nil {
-			return nil, nil, fmt.Errorf("bad include pattern %q: %w", p, err)
-		}
-		includeGlobs = append(includeGlobs, g)
+	fastsGlobs, err := compileGlobs(fasts)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("fast pattern error: %w", err)
 	}
-	var excludeGlobs []glob.Glob
-	for _, p := range excludes {
-		g, err := glob.Compile(p)
-		if err != nil {
-			return nil, nil, fmt.Errorf("bad exclude pattern %q: %w", p, err)
-		}
-		excludeGlobs = append(excludeGlobs, g)
-	}
-	return includeGlobs, excludeGlobs, nil
+	return includeGlobs, excludeGlobs, fastsGlobs, nil
 }
