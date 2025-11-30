@@ -17,6 +17,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/gobwas/glob"
+	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v3"
 )
 
@@ -98,6 +99,11 @@ func newApp() *cli.Command {
 				Name:  "no-color",
 				Usage: "Disable colored output",
 			},
+			&cli.BoolFlag{
+				Name:    "silent",
+				Aliases: []string{"s"},
+				Usage:   "Disable progress bar",
+			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			args := cmd.Args().Slice()
@@ -107,6 +113,14 @@ func newApp() *cli.Command {
 			dirA := args[0]
 			dirB := args[1]
 
+			includes := cmd.StringSlice("include")
+			excludes := cmd.StringSlice("exclude")
+			fasts := cmd.StringSlice("fast")
+			workers := cmd.Int("workers")
+			verbose := cmd.Bool("verbose")
+			noColor := cmd.Bool("no-color")
+			silent := cmd.Bool("silent")
+
 			// Validate directories before processing
 			if err := validateDir(dirA); err != nil {
 				return err
@@ -115,12 +129,29 @@ func newApp() *cli.Command {
 				return err
 			}
 
-			includes := cmd.StringSlice("include")
-			excludes := cmd.StringSlice("exclude")
-			fasts := cmd.StringSlice("fast")
-			workers := cmd.Int("workers")
-			verbose := cmd.Bool("verbose")
-			noColor := cmd.Bool("no-color")
+			absA, errA := filepath.Abs(dirA)
+			absB, errB := filepath.Abs(dirB)
+			if errA != nil {
+				return errA
+			}
+			if errB != nil {
+				return errB
+			}
+			// Check for self-comparison (Same effective path, resolving symlinks)
+			realA, errA := filepath.EvalSymlinks(absA)
+			realB, errB := filepath.EvalSymlinks(absB)
+			if errA != nil {
+				return errA
+			}
+			if errB != nil {
+				return errB
+			}
+			if realA == realB {
+				if verbose {
+					fmt.Fprintf(cmd.ErrWriter, "Directories are identical (same path: %s).\n", realA)
+				}
+				return nil
+			}
 
 			fastGlobs, includeGlobs, excludeGlobs, err := processGlobs(fasts, includes, excludes)
 			if err != nil {
@@ -136,13 +167,19 @@ func newApp() *cli.Command {
 			}
 
 			// 1. Scan both directories with cross-referencing
-			filesA, uniqueDirsA, err := scanDirectory(dirA, dirB, includeGlobs, excludeGlobs, verbose, cmd.ErrWriter)
+			filesA, uniqueDirsA, err := scanDirectory(realA, realB, includeGlobs, excludeGlobs, verbose, cmd.ErrWriter)
 			if err != nil {
 				return fmt.Errorf("error scanning %s: %w", dirA, err)
 			}
-			filesB, uniqueDirsB, err := scanDirectory(dirB, dirA, includeGlobs, excludeGlobs, verbose, cmd.ErrWriter)
+			if verbose {
+				fmt.Fprintf(cmd.ErrWriter, "Scanned %s\n", dirA)
+			}
+			filesB, uniqueDirsB, err := scanDirectory(realB, realA, includeGlobs, excludeGlobs, verbose, cmd.ErrWriter)
 			if err != nil {
 				return fmt.Errorf("error scanning %s: %w", dirB, err)
+			}
+			if verbose {
+				fmt.Fprintf(cmd.ErrWriter, "Scanned %s\n", dirB)
 			}
 
 			// Collect all diff items here
@@ -174,6 +211,10 @@ func newApp() *cli.Command {
 				}
 			}
 
+			if verbose {
+				fmt.Fprintf(cmd.ErrWriter, "Extracted unique files/directories\n")
+			}
+
 			// 2. Compare content of common files concurrently
 			jobCh := make(chan string, len(commonFiles))
 			for _, f := range commonFiles {
@@ -182,8 +223,45 @@ func newApp() *cli.Command {
 			close(jobCh)
 
 			resultCh := make(chan DiffItem, len(commonFiles))
-			var wg sync.WaitGroup
 
+			// Progress Bar setup
+			// We use a separate channel for progress updates to decouple UI IO from worker CPU
+			progressCh := make(chan struct{}, len(commonFiles))
+			var barWg sync.WaitGroup
+
+			if !silent && len(commonFiles) > 0 {
+				barWg.Add(1)
+				go func() {
+					defer barWg.Done()
+					bar := progressbar.NewOptions(len(commonFiles),
+						progressbar.OptionSetWriter(cmd.ErrWriter),
+						progressbar.OptionEnableColorCodes(true),
+						progressbar.OptionShowBytes(false),
+						progressbar.OptionSetWidth(15),
+						progressbar.OptionSetDescription("[cyan]Comparing files[reset]"),
+						progressbar.OptionSetTheme(progressbar.Theme{
+							Saucer:        "[green]=[reset]",
+							SaucerHead:    "[green]>[reset]",
+							SaucerPadding: " ",
+							BarStart:      "[",
+							BarEnd:        "]",
+						}),
+					)
+					for range progressCh {
+						bar.Add(1)
+					}
+					bar.Finish()
+					fmt.Fprintln(cmd.ErrWriter) // Newline after bar
+				}()
+			} else {
+				// Drain channel if no bar
+				go func() {
+					for range progressCh {
+					}
+				}()
+			}
+
+			var wg sync.WaitGroup
 			for range workers {
 				wg.Add(1)
 				go func() {
@@ -193,6 +271,10 @@ func newApp() *cli.Command {
 						pathB := filesB[relPath]
 
 						diff, err := compareFileContent(pathA, pathB, relPath, fastGlobs)
+
+						// Signal progress
+						progressCh <- struct{}{}
+
 						if err != nil {
 							if verbose {
 								fmt.Fprintf(cmd.ErrWriter, "Error comparing %s: %v\n", relPath, err)
@@ -209,6 +291,8 @@ func newApp() *cli.Command {
 
 			wg.Wait()
 			close(resultCh)
+			close(progressCh)
+			barWg.Wait() // Wait for progress bar to finish rendering
 
 			for item := range resultCh {
 				results = append(results, item)
@@ -220,9 +304,9 @@ func newApp() *cli.Command {
 			})
 
 			// Prepare colors
-			red := color.New(color.FgRed).SprintfFunc()
-			green := color.New(color.FgGreen).SprintfFunc()
-			yellow := color.New(color.FgYellow).SprintfFunc()
+			red := color.New(color.FgRed).FprintfFunc()
+			green := color.New(color.FgGreen).FprintfFunc()
+			yellow := color.New(color.FgYellow).FprintfFunc()
 
 			hasAdded := false
 			hasRemoved := false
@@ -237,13 +321,13 @@ func newApp() *cli.Command {
 				switch item.Type {
 				case Added:
 					hasAdded = true
-					fmt.Fprintf(cmd.Writer, "%s %s%s\n", green("+"), item.Path, suffix)
+					green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
 				case Removed:
 					hasRemoved = true
-					fmt.Fprintf(cmd.Writer, "%s %s%s\n", red("-"), item.Path, suffix)
+					red(cmd.Writer, "- %s%s\n", item.Path, suffix)
 				case Modified:
 					hasModified = true
-					fmt.Fprintf(cmd.Writer, "%s %s%s\n", yellow("~"), item.Path, suffix)
+					yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
 				}
 			}
 
