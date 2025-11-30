@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,34 +68,38 @@ func TestDirDiff(t *testing.T) {
 		name          string
 		dirA          string
 		dirB          string
+		shouldError   bool
 		shouldContain []string // strings that must appear in output
 		shouldNotHas  []string // strings that must NOT appear
 	}{
 		{
-			name: "Equal Directories",
-			dirA: baseDir,
-			dirB: equalDir,
+			name:        "Equal Directories",
+			dirA:        baseDir,
+			dirB:        equalDir,
+			shouldError: false,
 			// Expect no output
 			shouldContain: []string{},
 			shouldNotHas:  []string{"+", "-", "~", "file1", "file2"},
 		},
 		{
-			name: "Modified Directories",
-			dirA: baseDir,
-			dirB: modDir,
+			name:        "Modified Directories",
+			dirA:        baseDir,
+			dirB:        modDir,
+			shouldError: true, // Should return ErrDiffsFound (Exit Code 1)
 			// Expect modification on file2
 			shouldContain: []string{
 				"~ file2",
 			},
 			shouldNotHas: []string{
-				"file1",  // unchanged
+				"file1", // unchanged
 				"+", "-", // no additions or deletions
 			},
 		},
 		{
-			name: "Inequal Directories (Structure change)",
-			dirA: baseDir,
-			dirB: inequalDir,
+			name:        "Inequal Directories (Structure change)",
+			dirA:        baseDir,
+			dirB:        inequalDir,
+			shouldError: true, // Should return ErrDiffsFound (Exit Code 1)
 			// test_base has: file1, file2
 			// test_inequal has: file1, file4, file5, subdir/ts2
 			// Expected:
@@ -130,8 +135,16 @@ func TestDirDiff(t *testing.T) {
 			args := []string{"dirdiff", "--no-color", tt.dirA, tt.dirB}
 
 			err := app.Run(context.Background(), args)
-			if err != nil {
-				t.Fatalf("app run failed: %v", err)
+
+			// Assert Error / Exit Code logic
+			if tt.shouldError {
+				if err == nil || !errors.Is(err, ErrDiffsFound) {
+					t.Errorf("expected ErrDiffsFound, got: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
 			}
 
 			output := outBuf.String()
