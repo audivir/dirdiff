@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,9 @@ import (
 	"github.com/gobwas/glob"
 	"github.com/urfave/cli/v3"
 )
+
+// ErrDiffsFound is returned when differences are detected between directories.
+var ErrDiffsFound = errors.New("differences found")
 
 // ChangeType represents the type of difference found
 type ChangeType int
@@ -37,8 +41,13 @@ type DiffItem struct {
 func main() {
 	app := newApp()
 	if err := app.Run(context.Background(), os.Args); err != nil {
+		// Exit Code 1: Differences found (clean exit, no error message printed)
+		if errors.Is(err, ErrDiffsFound) {
+			os.Exit(1)
+		}
+		// Exit Code 2: Runtime error (print message)
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 }
 
@@ -212,6 +221,11 @@ func newApp() *cli.Command {
 				case Modified:
 					fmt.Fprintf(cmd.Writer, "%s %s%s\n", yellow("~"), item.Path, suffix)
 				}
+			}
+
+			// Return specific error to signal exit code 1 if differences were found
+			if len(results) > 0 {
+				return ErrDiffsFound
 			}
 
 			return nil
