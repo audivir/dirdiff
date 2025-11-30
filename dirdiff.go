@@ -242,14 +242,23 @@ func newApp() *cli.Command {
 
 			// 4. Determine Exit Code
 			if len(results) == 0 {
+				if verbose {
+					fmt.Fprintln(cmd.ErrWriter, "Directories are identical.")
+				}
 				return nil // Code 0: Identical
 			}
 
 			if hasModified {
+				if verbose {
+					fmt.Fprintln(cmd.ErrWriter, "Directories are divergent: content differences found.")
+				}
 				return ErrDiffsFound // Code 1: Modifications exist (cannot be subset)
 			}
 
 			if hasAdded && hasRemoved {
+				if verbose {
+					fmt.Fprintln(cmd.ErrWriter, "Directories are divergent: both have unique files.")
+				}
 				return ErrDiffsFound // Code 1: Divergent (Both have unique files)
 			}
 
@@ -257,6 +266,9 @@ func newApp() *cli.Command {
 				// No removed, no modified, only Added.
 				// Dir A is missing things that Dir B has.
 				// A is a subset of B.
+				if verbose {
+					fmt.Fprintf(cmd.ErrWriter, "Result: %s is a strictly contained subset of %s.\n", dirA, dirB)
+				}
 				return ErrASubsetB // Code 3
 			}
 
@@ -264,6 +276,9 @@ func newApp() *cli.Command {
 				// No added, no modified, only Removed.
 				// Dir A has things Dir B doesn't.
 				// B is a subset of A.
+				if verbose {
+					fmt.Fprintf(cmd.ErrWriter, "Result: %s is a strictly contained subset of %s.\n", dirB, dirA)
+				}
 				return ErrBSubsetA // Code 4
 			}
 
