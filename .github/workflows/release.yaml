@@ -5,13 +5,13 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
-  build-and-release:
+  build:
     name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     strategy:
       matrix:
         goos: [linux, darwin, windows]
@@ -38,7 +38,26 @@ jobs:
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           go build -ldflags="-s -w" -o dirdiff-$GOOS-$GOARCH$EXT
 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dirdiff-*
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dirdiff-*
+          files: dist/*
