@@ -29,7 +29,7 @@ func (a *RpcAgent) Ping(args PingArgs, reply *PingReply) error {
 }
 
 func (a *RpcAgent) Scan(args ScanArgs, reply *ScanReply) error {
-	files, dirs, err := coreScan(args.Root, args.Includes, args.Excludes)
+	files, dirs, err := coreScan(args.Root, args.Includes, args.Excludes, args.FollowSym)
 	if err != nil {
 		reply.Error = err.Error()
 	}
@@ -39,7 +39,7 @@ func (a *RpcAgent) Scan(args ScanArgs, reply *ScanReply) error {
 }
 
 func (a *RpcAgent) GetMD5(args HashArgs, reply *HashReply) error {
-	hashStr, err := coreMD5(args.Root, args.RelPath)
+	hashStr, err := coreMD5(args.Root, args.RelPath, args.FollowSym)
 	if err != nil {
 		reply.Error = err.Error()
 	}
@@ -48,7 +48,7 @@ func (a *RpcAgent) GetMD5(args HashArgs, reply *HashReply) error {
 }
 
 func (a *RpcAgent) GetSHA(args HashArgs, reply *HashReply) error {
-	hashStr, err := coreSHA(args.Root, args.RelPath, args.Limit)
+	hashStr, err := coreSHA(args.Root, args.RelPath, args.Limit, args.FollowSym)
 	if err != nil {
 		reply.Error = err.Error()
 	}

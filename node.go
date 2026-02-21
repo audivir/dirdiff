@@ -18,9 +18,10 @@ type PingArgs struct{}
 type PingReply struct{ Status string }
 
 type ScanArgs struct {
-	Root     string
-	Includes []string
-	Excludes []string
+	Root      string
+	Includes  []string
+	Excludes  []string
+	FollowSym bool
 }
 
 type ScanReply struct {
@@ -30,9 +31,10 @@ type ScanReply struct {
 }
 
 type HashArgs struct {
-	Root    string
-	RelPath string
-	Limit   int64
+	Root      string
+	RelPath   string
+	Limit     int64
+	FollowSym bool
 }
 
 type HashReply struct {
@@ -41,9 +43,9 @@ type HashReply struct {
 }
 
 type DirNode interface {
-	Scan(includes, excludes []string) (map[string]int64, []string, error)
-	GetMD5(relPath string) (string, error)
-	GetSHA(relPath string, limit int64) (string, error)
+	Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error)
+	GetMD5(relPath string, followSym bool) (string, error)
+	GetSHA(relPath string, limit int64, followSym bool) (string, error)
 	Close() error
 }
 
@@ -68,12 +70,14 @@ func createNode(ctx context.Context, pathStr, agentBin string, useSudo bool, ver
 
 type LocalNode struct{ root string }
 
-func (n *LocalNode) Scan(includes, excludes []string) (map[string]int64, []string, error) {
-	return coreScan(n.root, includes, excludes)
+func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error) {
+	return coreScan(n.root, includes, excludes, followSym)
 }
-func (n *LocalNode) GetMD5(relPath string) (string, error) { return coreMD5(n.root, relPath) }
-func (n *LocalNode) GetSHA(relPath string, limit int64) (string, error) {
-	return coreSHA(n.root, relPath, limit)
+func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
+	return coreMD5(n.root, relPath, followSym)
+}
+func (n *LocalNode) GetSHA(relPath string, limit int64, followSym bool) (string, error) {
+	return coreSHA(n.root, relPath, limit, followSym)
 }
 func (n *LocalNode) Close() error { return nil }
 
@@ -205,26 +209,26 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	return &RemoteNode{cmd: cmd, client: client, root: root}, nil
 }
 
-func (n *RemoteNode) Scan(includes, excludes []string) (map[string]int64, []string, error) {
+func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error) {
 	reply := &ScanReply{}
-	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes}, reply)
+	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes, FollowSym: followSym}, reply)
 	if reply.Error != "" {
 		return nil, nil, errors.New(reply.Error)
 	}
 	return reply.Files, reply.Dirs, err
 }
 
-func (n *RemoteNode) GetMD5(relPath string) (string, error) {
+func (n *RemoteNode) GetMD5(relPath string, followSym bool) (string, error) {
 	reply := &HashReply{}
-	err := n.client.Call("RpcAgent.GetMD5", HashArgs{Root: n.root, RelPath: relPath}, reply)
+	err := n.client.Call("RpcAgent.GetMD5", HashArgs{Root: n.root, RelPath: relPath, FollowSym: followSym}, reply)
 	if reply.Error != "" {
 		return "", errors.New(reply.Error)
 	}
 	return reply.Hash, err
 }
-func (n *RemoteNode) GetSHA(relPath string, limit int64) (string, error) {
+func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string, error) {
 	reply := &HashReply{}
-	err := n.client.Call("RpcAgent.GetSHA", HashArgs{Root: n.root, RelPath: relPath, Limit: limit}, reply)
+	err := n.client.Call("RpcAgent.GetSHA", HashArgs{Root: n.root, RelPath: relPath, Limit: limit, FollowSym: followSym}, reply)
 	if reply.Error != "" {
 		return "", errors.New(reply.Error)
 	}

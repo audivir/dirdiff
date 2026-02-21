@@ -18,7 +18,7 @@ import (
 
 var (
 	BIN_NAME      = "dirdiff"
-	VERSION       = "0.1.3"
+	VERSION       = "0.1.4"
 	READY_MSG     = "__DIRDIFF_AGENT_READY__"
 	TIME_WARNING  = 2 * time.Second
 	ErrDiffsFound = errors.New("divergent differences found")
@@ -73,11 +73,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	filesA, dirsA, err := nodeA.Scan(includes, excludes)
+	filesA, dirsA, err := nodeA.Scan(includes, excludes, args.FollowSym)
 	if err != nil {
 		return fmt.Errorf("scan A error: %w", err)
 	}
-	filesB, dirsB, err := nodeB.Scan(includes, excludes)
+	filesB, dirsB, err := nodeB.Scan(includes, excludes, args.FollowSym)
 	if err != nil {
 		return fmt.Errorf("scan B error: %w", err)
 	}
@@ -199,8 +199,8 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 							return
 						}
 
-						md5A, errA := nodeA.GetMD5(p)
-						md5B, errB := nodeB.GetMD5(p)
+						md5A, errA := nodeA.GetMD5(p, args.FollowSym)
+						md5B, errB := nodeB.GetMD5(p, args.FollowSym)
 
 						if errA != nil || errB != nil || md5A != md5B {
 							resultCh <- DiffItem{Path: p, Type: Modified, IsDir: false}
@@ -216,8 +216,8 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 						}
 
 						start := time.Now()
-						shaA, errA := nodeA.GetSHA(p, limit)
-						shaB, errB := nodeB.GetSHA(p, limit)
+						shaA, errA := nodeA.GetSHA(p, limit, args.FollowSym)
+						shaB, errB := nodeB.GetSHA(p, limit, args.FollowSym)
 						if time.Since(start) > TIME_WARNING && args.Verbose {
 							fmt.Fprintf(cmd.ErrWriter, "SHA check for %s took %v\n", p, time.Since(start))
 						}

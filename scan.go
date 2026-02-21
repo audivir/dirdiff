@@ -9,7 +9,7 @@ import (
 // to file sizes and the corresponding list of files.
 // If includes is empty, all files are included if they are not excluded.
 // Exclusion is applied after inclusion.
-func coreScan(rootDir string, includes, excludes []string) (map[string]int64, []string, error) {
+func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]int64, []string, error) {
 	files := make(map[string]int64)
 	var dirs []string
 
@@ -22,49 +22,80 @@ func coreScan(rootDir string, includes, excludes []string) (map[string]int64, []
 		return nil, nil, err
 	}
 
-	err = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+	visitedPaths := make(map[string]bool)
+
+	var walk func(currPath string) error
+	walk = func(currPath string) error {
+		info, err := os.Lstat(currPath)
 		if err != nil {
 			return nil
 		}
-		rel, err := filepath.Rel(rootDir, path)
+
+		isSym := info.Mode()&os.ModeSymlink != 0
+		if isSym && followSym {
+			realPath, err := filepath.EvalSymlinks(currPath)
+			if err != nil {
+				return nil
+			}
+			if visitedPaths[realPath] {
+				return nil // Cycle detected, bail out
+			}
+			visitedPaths[realPath] = true
+
+			// Swap our stat info to the symlink target
+			info, err = os.Stat(realPath)
+			if err != nil {
+				return nil
+			}
+		}
+
+		rel, err := filepath.Rel(rootDir, currPath)
 		if err != nil || rel == "." {
-			return nil
+			rel = ""
 		}
 
 		slashRel := filepath.ToSlash(rel)
 
-		for _, g := range excGlobs {
-			if g.Match(slashRel) {
-				if d.IsDir() {
-					return filepath.SkipDir
+		if slashRel != "" {
+			for _, g := range excGlobs {
+				if g.Match(slashRel) {
+					return nil
 				}
-				return nil
 			}
 		}
 
-		if d.IsDir() {
-			dirs = append(dirs, slashRel)
+		if info.IsDir() {
+			if slashRel != "" {
+				dirs = append(dirs, slashRel)
+			}
+			entries, err := os.ReadDir(currPath)
+			if err != nil {
+				return nil
+			}
+			for _, e := range entries {
+				walk(filepath.Join(currPath, e.Name()))
+			}
 			return nil
 		}
 
-		if len(incGlobs) > 0 {
-			matched := false
-			for _, g := range incGlobs {
-				if g.Match(slashRel) {
-					matched = true
-					break
+		if slashRel != "" {
+			if len(incGlobs) > 0 {
+				matched := false
+				for _, g := range incGlobs {
+					if g.Match(slashRel) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return nil
 				}
 			}
-			if !matched {
-				return nil
-			}
-		}
-
-		info, err := d.Info()
-		if err == nil {
 			files[slashRel] = info.Size()
 		}
 		return nil
-	})
+	}
+
+	err = walk(rootDir)
 	return files, dirs, err
 }
