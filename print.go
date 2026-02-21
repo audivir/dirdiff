@@ -22,10 +22,9 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 	var addedFiles, removedFiles, modifiedFiles int
 	var addedDirs, removedDirs int
 
+	// gather statistics
 	for _, item := range results {
-		suffix := ""
 		if item.IsDir {
-			suffix = string(os.PathSeparator)
 			switch item.Type {
 			case Added:
 				addedDirs++
@@ -42,15 +41,32 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 				modifiedFiles++
 			}
 		}
+	}
 
-		if !cmd.Bool("quiet") {
-			switch item.Type {
-			case Added:
-				green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
-			case Removed:
-				red(cmd.Writer, "- %s%s\n", item.Path, suffix)
-			case Modified:
-				yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
+	if !cmd.Bool("quiet") {
+		if cmd.Bool("tree") {
+			// tree output
+			args := cmd.Args().Slice()
+			pathA, pathB := "Dir A", "Dir B"
+			if len(args) >= 2 {
+				pathA, pathB = args[0], args[1]
+			}
+			printTree(results, pathA, pathB, cmd)
+		} else {
+			// standard line-by-line output
+			for _, item := range results {
+				suffix := ""
+				if item.IsDir {
+					suffix = string(os.PathSeparator)
+				}
+				switch item.Type {
+				case Added:
+					green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
+				case Removed:
+					red(cmd.Writer, "- %s%s\n", item.Path, suffix)
+				case Modified:
+					yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
+				}
 			}
 		}
 	}
@@ -60,7 +76,7 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 	hasModified := modifiedFiles > 0
 
 	if verbose {
-		fmt.Fprintln(cmd.ErrWriter)
+		fmt.Fprintln(cmd.ErrWriter) // spacing
 	}
 
 	if len(results) == 0 {

@@ -18,7 +18,7 @@ import (
 
 var (
 	BIN_NAME      = "dirdiff"
-	VERSION       = "0.1.2"
+	VERSION       = "0.1.3"
 	READY_MSG     = "__DIRDIFF_AGENT_READY__"
 	TIME_WARNING  = 2 * time.Second
 	ErrDiffsFound = errors.New("divergent differences found")
