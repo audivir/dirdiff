@@ -14,14 +14,16 @@ import (
 
 type NodeStatus int
 
-var (
-	HEADER_SEPARATOR = "═"
-	SEPARATOR        = " ║ "
-	SEPARATOR_COUNT  = utf8.RuneCountInString(SEPARATOR)
-	MARKER           = "├── "
-	LAST_MARKER      = "└── "
-	CHILD            = "│   "
-	LAST_CHILD       = "    "
+const (
+	FALLBACK_TERMINAL_WIDTH = 80
+	HEADER_SEPARATOR        = "═"
+	SEPARATOR               = " ║ "
+	MARKER                  = "├── "
+	LAST_MARKER             = "└── "
+	OTHER_MARKER            = "├×  "
+	LAST_OTHER_MARKER       = "└×  "
+	CHILD                   = "│   "
+	LAST_CHILD              = "    "
 )
 
 const (
@@ -52,9 +54,13 @@ type TreeLine struct {
 
 // getTerminalWidth returns the current terminal width or a default on error
 func getTerminalWidth() int {
+	// for testing purposes
+	if os.Getenv("TEST_FIX_WIDTH") != "" {
+		return FALLBACK_TERMINAL_WIDTH // standard width
+	}
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || width <= 0 {
-		return 80 // fallback standard width
+		return FALLBACK_TERMINAL_WIDTH // fallback standard width
 	}
 	return width
 }
@@ -158,7 +164,7 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 
 	// calculate column widths
 	termWidth := getTerminalWidth()
-	maxColWidth := (termWidth - SEPARATOR_COUNT) / 2 // subtract the separator size
+	maxColWidth := (termWidth - utf8.RuneCountInString(SEPARATOR)) / 2 // subtract the separator size
 
 	longestLeft := utf8.RuneCountInString(pathA)
 	for _, l := range lines {
@@ -206,6 +212,10 @@ func generateTreeLines(node *TreeNode, prefixLeft, prefixRight string, lines *[]
 		if last {
 			marker = LAST_MARKER
 		}
+		otherMarker := OTHER_MARKER
+		if last {
+			otherMarker = LAST_OTHER_MARKER
+		}
 		childPrefixExt := CHILD
 		if last {
 			childPrefixExt = LAST_CHILD
@@ -225,12 +235,16 @@ func generateTreeLines(node *TreeNode, prefixLeft, prefixRight string, lines *[]
 
 		switch child.Status {
 		case StatusAdded:
+			line.LeftAncestor = prefixLeft
+			line.LeftMarker = otherMarker
 			line.RightAncestor = prefixRight
 			line.RightMarker = marker
 			line.RightName = nameStr
 			line.RightColor = color.New(color.FgGreen)
 			nextPrefixLeft = ""
 		case StatusRemoved:
+			line.RightAncestor = prefixRight
+			line.RightMarker = otherMarker
 			line.LeftAncestor = prefixLeft
 			line.LeftMarker = marker
 			line.LeftName = nameStr

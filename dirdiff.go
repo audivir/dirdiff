@@ -16,11 +16,14 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	BIN_NAME     = "dirdiff"
+	VERSION      = "0.1.4"
+	READY_MSG    = "__DIRDIFF_AGENT_READY__"
+	TIME_WARNING = 2 * time.Second
+)
+
 var (
-	BIN_NAME      = "dirdiff"
-	VERSION       = "0.1.4"
-	READY_MSG     = "__DIRDIFF_AGENT_READY__"
-	TIME_WARNING  = 2 * time.Second
 	ErrDiffsFound = errors.New("divergent differences found")
 	ErrASubsetB   = errors.New("dir A is a subset of dir B")
 	ErrBSubsetA   = errors.New("dir B is a subset of dir A")
