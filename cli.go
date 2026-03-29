@@ -21,6 +21,7 @@ type ParsedArgs struct {
 	FastLimit            int64
 	GlobalLimit          int64
 	FollowSym            bool
+	Flat                 bool
 	Verbose              bool
 }
 
@@ -55,6 +56,7 @@ func newApp() *cli.Command {
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
 			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Value: int(runtime.NumCPU()), Usage: "Number of parallel workers"},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
+			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
 			// hashing
 			&cli.StringSliceFlag{Name: "fast", Aliases: []string{"f"}, Usage: "Glob patterns to use fast SHA256 hashes (sparse-hashing) for"},
 			&cli.StringFlag{Name: "fast-limit", Aliases: []string{"l"}, Usage: "Size limit for fast SHA256 hashes (default 1MB)", HideDefault: true, Value: "1MB"},
@@ -166,6 +168,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,
 		FollowSym:   cmd.Bool("follow-symlinks"),
+		Flat:        cmd.Bool("flat"),
 		Verbose:     cmd.Bool("verbose") && !cmd.Bool("quiet"),
 	}, nil
 }

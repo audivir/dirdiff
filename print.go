@@ -65,7 +65,12 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 				case Removed:
 					red(cmd.Writer, "- %s%s\n", item.Path, suffix)
 				case Modified:
-					yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
+					// Check if PathB exists and is different from PathA
+					if item.PathB != "" && item.PathB != item.Path {
+						yellow(cmd.Writer, "~ %s (in A) | %s (in B)\n", item.Path, item.PathB)
+					} else {
+						yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
+					}
 				}
 			}
 		}
