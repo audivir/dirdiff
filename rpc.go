@@ -12,7 +12,7 @@ type RpcAgent struct{}
 // runAgent starts an RPC server that listens on stdin and stdout.
 // It prints a ready message just before starting the server.
 func runAgent() error {
-	rpc.Register(new(RpcAgent))
+	_ = rpc.Register(new(RpcAgent))
 	conn := struct {
 		io.Reader
 		io.Writer

@@ -14,6 +14,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// isRemotePath reports whether p refers to a remote host:/path target
+// (host:path form) rather than a local path.
+func isRemotePath(p string) bool {
+	return strings.Contains(p, ":") && !filepath.IsAbs(p)
+}
+
 type ParsedArgs struct {
 	PathA, PathB         string
 	AgentBinA, AgentBinB string
@@ -97,8 +103,8 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		color.NoColor = true
 	}
 
-	isRemoteA := strings.Contains(args[0], ":") && !filepath.IsAbs(args[0])
-	isRemoteB := strings.Contains(args[1], ":") && !filepath.IsAbs(args[1])
+	isRemoteA := isRemotePath(args[0])
+	isRemoteB := isRemotePath(args[1])
 
 	remoteBins := cmd.StringSlice("remote-bin")
 

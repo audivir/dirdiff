@@ -180,10 +180,10 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 	headB := truncate(pathB, maxColWidth)
 
 	headerPadding := strings.Repeat(" ", leftWidth-utf8.RuneCountInString(headA))
-	fmt.Fprintf(cmd.Writer, "%s%s%s%s\n", cyan(headA), headerPadding, SEPARATOR, cyan(headB))
+	_, _ = fmt.Fprintf(cmd.Writer, "%s%s%s%s\n", cyan(headA), headerPadding, SEPARATOR, cyan(headB))
 
 	// separator
-	fmt.Fprintln(cmd.Writer, strings.Repeat(HEADER_SEPARATOR, leftWidth+utf8.RuneCountInString(headB)+3))
+	_, _ = fmt.Fprintln(cmd.Writer, strings.Repeat(HEADER_SEPARATOR, leftWidth+utf8.RuneCountInString(headB)+3))
 
 	// print parsed lines with styles
 	for _, l := range lines {
@@ -193,7 +193,7 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 		paddingLen := max(leftWidth-leftRawLen, 0)
 		padding := strings.Repeat(" ", paddingLen)
 
-		fmt.Fprintf(cmd.Writer, "%s%s%s%s\n", leftStr, padding, SEPARATOR, rightStr)
+		_, _ = fmt.Fprintf(cmd.Writer, "%s%s%s%s\n", leftStr, padding, SEPARATOR, rightStr)
 	}
 }
 

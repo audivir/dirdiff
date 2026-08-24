@@ -139,7 +139,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 			n, err := stderrPipe.Read(buf)
 			if n > 0 {
 				b := buf[0]
-				os.Stderr.Write([]byte{b})
+				_, _ = os.Stderr.Write([]byte{b})
 				stderrBuf.WriteByte(b)
 
 				window = append(window, b)
@@ -149,7 +149,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 
 				if string(window) == promptMarker {
 					pass := readPassword()
-					io.WriteString(stdinPipe, pass+"\n")
+					_, _ = io.WriteString(stdinPipe, pass+"\n")
 					window = nil // reset so we don't trigger again on accident
 				}
 			}
@@ -180,7 +180,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	select {
 	case err := <-readyCh:
 		if err != nil {
-			cmd.Wait()
+			_ = cmd.Wait()
 			errMsg := strings.TrimSpace(stderrBuf.String())
 			if errMsg != "" {
 				return nil, fmt.Errorf("remote agent failed to start: %s | %v", errMsg, err)
@@ -202,7 +202,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 
 	reply := &PingReply{}
 	if err := client.Call("RpcAgent.Ping", PingArgs{}, reply); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("remote agent RPC ping failed: %w", err)
 	}
 
@@ -235,6 +235,6 @@ func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string
 	return reply.Hash, err
 }
 func (n *RemoteNode) Close() error {
-	n.client.Close()
+	_ = n.client.Close()
 	return n.cmd.Wait()
 }

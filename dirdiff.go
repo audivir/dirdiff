@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/gobwas/glob"
 	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v3"
@@ -19,7 +20,7 @@ import (
 
 const (
 	BIN_NAME     = "dirdiff"
-	VERSION      = "0.1.5"
+	VERSION      = "0.1.6"
 	READY_MSG    = "__DIRDIFF_AGENT_READY__"
 	TIME_WARNING = 2 * time.Second
 )
@@ -62,17 +63,29 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 }
 
 func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
+	if !isRemotePath(args.PathA) && !isRemotePath(args.PathB) {
+		absA, errA := filepath.Abs(args.PathA)
+		absB, errB := filepath.Abs(args.PathB)
+		if errA == nil && errB == nil && absA == absB {
+			if args.Verbose {
+				green := color.New(color.FgGreen).FprintfFunc()
+				green(cmd.ErrWriter, "identical (same path: %s)\n", absA)
+			}
+			return nil
+		}
+	}
+
 	nodeA, _, err := createNode(ctx, args.PathA, args.AgentBinA, args.SudoA, args.Verbose)
 	if err != nil {
 		return fmt.Errorf("setup A failed: %w", err)
 	}
-	defer nodeA.Close()
+	defer func() { _ = nodeA.Close() }()
 
 	nodeB, _, err := createNode(ctx, args.PathB, args.AgentBinB, args.SudoB, args.Verbose)
 	if err != nil {
 		return fmt.Errorf("setup B failed: %w", err)
 	}
-	defer nodeB.Close()
+	defer func() { _ = nodeB.Close() }()
 
 	includes := cmd.StringSlice("include")
 	excludes := cmd.StringSlice("exclude")
@@ -203,9 +216,9 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 				progressbar.OptionShowBytes(false),
 			)
 			for range progressCh {
-				bar.Add(1)
+				_ = bar.Add(1)
 			}
-			fmt.Fprintln(cmd.ErrWriter)
+			_, _ = fmt.Fprintln(cmd.ErrWriter)
 		}()
 	} else {
 		go func() {
@@ -257,7 +270,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 						shaA, errA := nodeA.GetSHA(j.PathA, limit, args.FollowSym)
 						shaB, errB := nodeB.GetSHA(j.PathB, limit, args.FollowSym)
 						if time.Since(start) > TIME_WARNING && args.Verbose {
-							fmt.Fprintf(cmd.ErrWriter, "SHA check for %s took %v\n", j.PathA, time.Since(start))
+							_, _ = fmt.Fprintf(cmd.ErrWriter, "SHA check for %s took %v\n", j.PathA, time.Since(start))
 						}
 
 						if errA != nil || errB != nil || shaA != shaB {

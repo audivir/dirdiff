@@ -20,19 +20,21 @@ func createFile(t *testing.T, path, content string) {
 	}
 }
 
-// Helper to create a large file (approx 1.1MB)
-func createLargeFile(t *testing.T, path string, diffEnd bool) {
+// Helper to create a large file (10MB). The sparse "fast" hash samples three
+// regions of the file (beginning, middle, end); withDiff places its single
+// changed byte outside all three, so a full hash detects it but a --fast
+// hash with the default 1MB limit does not.
+func createLargeFile(t *testing.T, path string, withDiff bool) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatalf("failed to create dirs for %s: %v", path, err)
 	}
-	// 1MB + 100 bytes
-	size := 1024*1024 + 100
+	const size = 10 * 1024 * 1024
 	data := make([]byte, size)
 	for i := range data {
 		data[i] = 'A'
 	}
-	if diffEnd {
-		data[size-1] = 'B' // Change the very last byte
+	if withDiff {
+		data[2*1024*1024] = 'B' // falls between the sampled begin and middle regions
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatalf("failed to create large file %s: %v", path, err)
@@ -86,7 +88,7 @@ func setupTestEnv(t *testing.T) string {
 
 func TestDirDiff(t *testing.T) {
 	root := setupTestEnv(t)
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	baseDir := filepath.Join(root, "test_base")
 	equalDir := filepath.Join(root, "test_equal")
@@ -105,40 +107,40 @@ func TestDirDiff(t *testing.T) {
 	}{
 		{
 			name:          "Equal Directories (Code 0)",
-			args:          []string{"dirdiff", "--no-color", "--silent", baseDir, equalDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", baseDir, equalDir},
 			expectedError: nil,
 			shouldContain: []string{},
 			shouldNotHas:  []string{"+", "-", "~", "file1", "file2"},
 		},
 		{
 			name:          "Same Directory Optimization (Code 0)",
-			args:          []string{"dirdiff", "--no-color", "--silent", "--verbose", baseDir, baseDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "--verbose", baseDir, baseDir},
 			expectedError: nil,
 			shouldContain: []string{"identical (same path: "},
 		},
 		{
 			name:          "Modified Directories (Code 1)",
-			args:          []string{"dirdiff", "--no-color", "--silent", baseDir, modDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", baseDir, modDir},
 			expectedError: ErrDiffsFound,
 			shouldContain: []string{"~ file2"},
 			shouldNotHas:  []string{"+", "-"},
 		},
 		{
 			name:          "Mixed Divergence (Code 1)",
-			args:          []string{"dirdiff", "--no-color", "--silent", baseDir, inequalDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", baseDir, inequalDir},
 			expectedError: ErrDiffsFound,
 			shouldContain: []string{"- file2", "+ file4", "+ file5"},
 		},
 		{
 			name:          "A is Subset of B (Code 3)",
-			args:          []string{"dirdiff", "--no-color", "--silent", subsetDir, baseDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", subsetDir, baseDir},
 			expectedError: ErrASubsetB,
 			shouldContain: []string{"+ file2"},
 			shouldNotHas:  []string{"-", "~"},
 		},
 		{
 			name:          "B is Subset of A (Code 4)",
-			args:          []string{"dirdiff", "--no-color", "--silent", baseDir, subsetDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", baseDir, subsetDir},
 			expectedError: ErrBSubsetA,
 			shouldContain: []string{"- file2"},
 			shouldNotHas:  []string{"+", "~"},
@@ -146,14 +148,14 @@ func TestDirDiff(t *testing.T) {
 		{
 			name: "Fast Mode OFF (Should Detect Diff)",
 			// Without --fast, it reads the whole file and sees the last byte diff
-			args:          []string{"dirdiff", "--no-color", "--silent", fastADir, fastBDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", fastADir, fastBDir},
 			expectedError: ErrDiffsFound,
 			shouldContain: []string{"~ large.dat"},
 		},
 		{
 			name: "Fast Mode ON (Should Skip Diff)",
 			// With --fast, it only reads 1MB. Since diff is at 1MB+100b, it should see them as equal.
-			args:          []string{"dirdiff", "--no-color", "--silent", "--fast", "*", fastADir, fastBDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "--fast", "*", fastADir, fastBDir},
 			expectedError: nil, // Should be Code 0 (Identical)
 			shouldNotHas:  []string{"~ large.dat"},
 		},

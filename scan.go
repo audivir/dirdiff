@@ -73,7 +73,7 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 				return nil
 			}
 			for _, e := range entries {
-				walk(filepath.Join(currPath, e.Name()))
+				_ = walk(filepath.Join(currPath, e.Name()))
 			}
 			return nil
 		}

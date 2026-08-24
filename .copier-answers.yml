@@ -1,0 +1,11 @@
+# Changes here will be overwritten by Copier
+_commit: 497ef93
+_src_path: gh:audivir/copier-template
+description: Compare two directories recursively
+github_org: audivir
+go_module_path: github.com/audivir/dirdiff
+go_version: '1.26'
+project_name: dirdiff
+project_slug: dirdiff
+project_type: go
+publishable: true

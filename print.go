@@ -81,7 +81,7 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 	hasModified := modifiedFiles > 0
 
 	if verbose {
-		fmt.Fprintln(cmd.ErrWriter) // spacing
+		_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
 	}
 
 	if len(results) == 0 {

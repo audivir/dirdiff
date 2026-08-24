@@ -1,0 +1,22 @@
+# go-generated files
+*.exe
+*.exe~
+*.dll
+*.dylib
+*.test
+*.out
+/bin/
+
+# editors
+.idea/
+.vscode/
+
+# os
+.DS_Store
+Thumbs.db
+
+# environment variables
+.env
+env/
+
+# custom exclusions

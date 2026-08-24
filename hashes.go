@@ -42,7 +42,7 @@ func computeSparseHash(path string, h hash.Hash, limit int64, followSym bool) (s
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Use normal file size if we followed symlinks or if it's a regular file
 	fileSize := info.Size()
