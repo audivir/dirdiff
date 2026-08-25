@@ -18,9 +18,12 @@ import (
 	"golang.org/x/term"
 )
 
+// Version is resolved from module build info for go install, overridden via
+// -ldflags -X main.version=... for release builds, and falls back to dev otherwise.
+var version = "dev"
+
 const (
 	BIN_NAME     = "dirdiff"
-	VERSION      = "0.1.6"
 	READY_MSG    = "__DIRDIFF_AGENT_READY__"
 	TIME_WARNING = 2 * time.Second
 )

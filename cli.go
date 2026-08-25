@@ -56,7 +56,7 @@ func newApp() *cli.Command {
 		Name:      BIN_NAME,
 		Usage:     "Compare two directories locally or over SSH.",
 		UsageText: "dirdiff [options] <pathA|hostA:/pathA> <pathB|hostB:/pathB>",
-		Version:   VERSION,
+		Version:   version,
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "include", Aliases: []string{"i"}, Usage: "Glob patterns to include files/dirs in the comparison"},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
