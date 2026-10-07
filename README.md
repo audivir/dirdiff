@@ -29,7 +29,8 @@ Either path can be local, or `host:/path` for a remote directory reached over SS
 Common options:
 
 - `-i, --include`, `-e, --exclude`: glob patterns to include or exclude files and
-  directories from the comparison.
+  directories from the comparison. Patterns match the relative path, and patterns without
+  a `/` also match a name at any depth, as in `.gitignore`.
 - `-w, --workers`: number of parallel workers, defaults to the number of CPUs.
 - `-L, --follow-symlinks`: follow symbolic links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be

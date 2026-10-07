@@ -409,3 +409,22 @@ func TestFlatModifiedShowsBothPaths(t *testing.T) {
 		t.Errorf("expected modified with both paths, got %v:\n%s", err, outBuf.String())
 	}
 }
+
+func TestBareNameExcludeMatchesAtAnyDepth(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "p", "node_modules", "m.js"), "A")
+	createFile(t, filepath.Join(dirB, "p", "node_modules", "m.js"), "B")
+	createFile(t, filepath.Join(dirA, "p", "node_modules_old"), "A")
+	createFile(t, filepath.Join(dirB, "p", "node_modules_old"), "B")
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-e", "node_modules", dirA, dirB})
+
+	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(outBuf.String()) != "~ p/node_modules_old" {
+		t.Errorf("expected only node_modules_old to differ, got %v:\n%s", err, outBuf.String())
+	}
+}

@@ -408,14 +408,22 @@ func readPassword() string {
 	return string(bytePassword)
 }
 
+// compileGlobs compiles patterns matched against slash-separated relative paths.
+// Like in .gitignore, a pattern without a slash also matches a name at any depth.
 func compileGlobs(patterns []string) ([]glob.Glob, error) {
 	var globs []glob.Glob
 	for _, p := range patterns {
-		g, err := glob.Compile(p)
-		if err != nil {
-			return nil, err
+		variants := []string{p}
+		if !strings.Contains(p, "/") {
+			variants = append(variants, "*/"+p)
 		}
-		globs = append(globs, g)
+		for _, v := range variants {
+			g, err := glob.Compile(v)
+			if err != nil {
+				return nil, err
+			}
+			globs = append(globs, g)
+		}
 	}
 	return globs, nil
 }
