@@ -68,10 +68,16 @@ type DiffItem struct {
 	IsDir bool
 }
 
-// ReadFailure stores a path that could not be read and the reason.
+// ReadFailure stores a path that could not be read on one side and the reason.
 type ReadFailure struct {
+	Side string
 	Path string
-	Msg  string
+	Err  string
+}
+
+// Msg returns the failure as a message prefixed with its side.
+func (f ReadFailure) Msg() string {
+	return f.Side + ": " + f.Err
 }
 
 type CompareJob struct {
@@ -285,7 +291,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	failedPaths := make(map[string]bool)
 	for side, failed := range map[string]map[string]string{"A": failedA, "B": failedB} {
 		for p, msg := range failed {
-			failures = append(failures, ReadFailure{Path: p, Msg: side + ": " + msg})
+			failures = append(failures, ReadFailure{Side: side, Path: p, Err: msg})
 			failedPaths[p] = true
 		}
 	}
@@ -317,10 +323,10 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	// reportErrs reports hash errors on either side and whether any occurred.
 	reportErrs := func(j CompareJob, errA, errB error) bool {
 		if errA != nil {
-			failureCh <- ReadFailure{Path: j.PathA, Msg: "A: " + errA.Error()}
+			failureCh <- ReadFailure{Side: "A", Path: j.PathA, Err: errA.Error()}
 		}
 		if errB != nil {
-			failureCh <- ReadFailure{Path: j.PathB, Msg: "B: " + errB.Error()}
+			failureCh <- ReadFailure{Side: "B", Path: j.PathB, Err: errB.Error()}
 		}
 		return errA != nil || errB != nil
 	}

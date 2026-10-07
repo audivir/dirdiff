@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,150 +10,201 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// counts stores the number of differences and unreadable paths of each kind.
+type counts struct {
+	ModifiedFiles   int `json:"modified_files"`
+	AddedFiles      int `json:"added_files"`
+	RemovedFiles    int `json:"removed_files"`
+	AddedDirs       int `json:"added_dirs"`
+	RemovedDirs     int `json:"removed_dirs"`
+	UnreadablePaths int `json:"unreadable_paths"`
+}
+
+// countResults counts the differences and failures by kind.
+func countResults(results []DiffItem, failures []ReadFailure) counts {
+	c := counts{UnreadablePaths: len(failures)}
+	for _, item := range results {
+		switch {
+		case item.IsDir && item.Type == Added:
+			c.AddedDirs++
+		case item.IsDir && item.Type == Removed:
+			c.RemovedDirs++
+		case item.Type == Added:
+			c.AddedFiles++
+		case item.Type == Removed:
+			c.RemovedFiles++
+		case item.Type == Modified:
+			c.ModifiedFiles++
+		}
+	}
+	return c
+}
+
+// verdict returns the name of the comparison result and the error that sets the exit code.
+func verdict(c counts) (string, error) {
+	hasAdded := c.AddedFiles > 0 || c.AddedDirs > 0
+	hasRemoved := c.RemovedFiles > 0 || c.RemovedDirs > 0
+	switch {
+	case c.UnreadablePaths > 0:
+		return "incomplete", fmt.Errorf("%s could not be read", countNoun(c.UnreadablePaths, "path"))
+	case c.ModifiedFiles > 0 || (hasAdded && hasRemoved):
+		return "divergent", ErrDiffsFound
+	case hasAdded:
+		return "a_subset_of_b", ErrASubsetB
+	case hasRemoved:
+		return "b_subset_of_a", ErrBSubsetA
+	}
+	return "identical", nil
+}
+
 func printAndDetermineExit(results []DiffItem, failures []ReadFailure, cmd *cli.Command, showSummary bool) error {
 	// sort alphabetically
 	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
-	sort.Slice(failures, func(i, j int) bool { return failures[i].Msg < failures[j].Msg })
+	sort.Slice(failures, func(i, j int) bool { return failures[i].Msg() < failures[j].Msg() })
 
+	c := countResults(results, failures)
+	result, err := verdict(c)
+	quiet := cmd.Bool("quiet")
+
+	if cmd.Bool("json") {
+		if !quiet {
+			if writeErr := writeJSON(cmd, results, failures, c, result); writeErr != nil {
+				return writeErr
+			}
+		}
+		return err
+	}
+
+	if !quiet {
+		if cmd.Bool("tree") {
+			args := cmd.Args().Slice()
+			printTree(results, args[0], args[1], cmd)
+		} else {
+			printList(results, cmd)
+		}
+		red := color.New(color.FgRed).FprintfFunc()
+		for _, f := range failures {
+			red(cmd.ErrWriter, "error: %s\n", f.Msg())
+		}
+	}
+	if showSummary {
+		printSummary(c, result, cmd)
+	}
+	return err
+}
+
+// printList prints one line per difference.
+func printList(results []DiffItem, cmd *cli.Command) {
+	red := color.New(color.FgRed).FprintfFunc()
+	green := color.New(color.FgGreen).FprintfFunc()
+	yellow := color.New(color.FgYellow).FprintfFunc()
+	for _, item := range results {
+		suffix := ""
+		if item.IsDir {
+			suffix = "/"
+		}
+		switch item.Type {
+		case Added:
+			green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
+		case Removed:
+			red(cmd.Writer, "- %s%s\n", item.Path, suffix)
+		case Modified:
+			if item.PathB != "" && item.PathB != item.Path {
+				yellow(cmd.Writer, "~ %s (in A) | %s (in B)\n", item.Path, item.PathB)
+			} else {
+				yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
+			}
+		}
+	}
+}
+
+// printSummary prints the counts and the result to stderr.
+func printSummary(c counts, result string, cmd *cli.Command) {
 	red := color.New(color.FgRed).FprintfFunc()
 	green := color.New(color.FgGreen).FprintfFunc()
 	yellow := color.New(color.FgYellow).FprintfFunc()
 	cyan := color.New(color.FgCyan).FprintfFunc()
 
-	var addedFiles, removedFiles, modifiedFiles int
-	var addedDirs, removedDirs int
+	_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
+	if result == "identical" {
+		green(cmd.ErrWriter, "Directories are identical.\n")
+		return
+	}
 
-	// gather statistics
+	var parts []string
+	for _, part := range []struct {
+		n    int
+		noun string
+	}{
+		{c.ModifiedFiles, "modified file"},
+		{c.AddedFiles, "added file"},
+		{c.RemovedFiles, "removed file"},
+		{c.AddedDirs, "added dir"},
+		{c.RemovedDirs, "removed dir"},
+		{c.UnreadablePaths, "unreadable path"},
+	} {
+		if part.n > 0 {
+			parts = append(parts, countNoun(part.n, part.noun))
+		}
+	}
+	summary := strings.Join(parts, ", ")
+	// append note if directories were skipped and --show-all isn't active
+	if !cmd.Bool("show-all") && (c.AddedDirs > 0 || c.RemovedDirs > 0) {
+		summary += " (subdirectories/files inside them not listed)"
+	}
+	cyan(cmd.ErrWriter, "Summary: %s\n", summary)
+
+	switch result {
+	case "incomplete":
+		red(cmd.ErrWriter, "Comparison is incomplete.\n")
+	case "divergent":
+		red(cmd.ErrWriter, "Directories are divergent.\n")
+	case "a_subset_of_b":
+		yellow(cmd.ErrWriter, "Directory A is a subset of directory B.\n")
+	case "b_subset_of_a":
+		yellow(cmd.ErrWriter, "Directory B is a subset of directory A.\n")
+	}
+}
+
+// jsonDiff stores one difference in the JSON output.
+type jsonDiff struct {
+	Type  string `json:"type"`
+	Path  string `json:"path"`
+	PathB string `json:"path_b,omitempty"`
+	Dir   bool   `json:"dir"`
+}
+
+// jsonError stores one unreadable path in the JSON output.
+type jsonError struct {
+	Side    string `json:"side"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+// jsonReport stores the complete JSON output.
+type jsonReport struct {
+	Result      string      `json:"result"`
+	Differences []jsonDiff  `json:"differences"`
+	Errors      []jsonError `json:"errors"`
+	Summary     counts      `json:"summary"`
+}
+
+// writeJSON writes the comparison as one JSON document to stdout.
+func writeJSON(cmd *cli.Command, results []DiffItem, failures []ReadFailure, c counts, result string) error {
+	report := jsonReport{Result: result, Differences: []jsonDiff{}, Errors: []jsonError{}, Summary: c}
 	for _, item := range results {
-		if item.IsDir {
-			switch item.Type {
-			case Added:
-				addedDirs++
-			case Removed:
-				removedDirs++
-			}
-		} else {
-			switch item.Type {
-			case Added:
-				addedFiles++
-			case Removed:
-				removedFiles++
-			case Modified:
-				modifiedFiles++
-			}
+		d := jsonDiff{Type: [...]string{Added: "added", Removed: "removed", Modified: "modified"}[item.Type], Path: item.Path, Dir: item.IsDir}
+		if item.PathB != item.Path {
+			d.PathB = item.PathB
 		}
+		report.Differences = append(report.Differences, d)
 	}
-
-	if !cmd.Bool("quiet") {
-		if cmd.Bool("tree") {
-			// tree output
-			args := cmd.Args().Slice()
-			pathA, pathB := "Dir A", "Dir B"
-			if len(args) >= 2 {
-				pathA, pathB = args[0], args[1]
-			}
-			printTree(results, pathA, pathB, cmd)
-		} else {
-			// standard line-by-line output
-			for _, item := range results {
-				suffix := ""
-				if item.IsDir {
-					suffix = "/"
-				}
-				switch item.Type {
-				case Added:
-					green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
-				case Removed:
-					red(cmd.Writer, "- %s%s\n", item.Path, suffix)
-				case Modified:
-					// Check if PathB exists and is different from PathA
-					if item.PathB != "" && item.PathB != item.Path {
-						yellow(cmd.Writer, "~ %s (in A) | %s (in B)\n", item.Path, item.PathB)
-					} else {
-						yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
-					}
-				}
-			}
-		}
+	for _, f := range failures {
+		report.Errors = append(report.Errors, jsonError{Side: f.Side, Path: f.Path, Message: f.Err})
 	}
-
-	if !cmd.Bool("quiet") {
-		for _, f := range failures {
-			red(cmd.ErrWriter, "error: %s\n", f.Msg)
-		}
-	}
-
-	hasAdded := addedFiles > 0 || addedDirs > 0
-	hasRemoved := removedFiles > 0 || removedDirs > 0
-	hasModified := modifiedFiles > 0
-
-	if showSummary {
-		_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
-	}
-
-	if len(results) == 0 && len(failures) == 0 {
-		if showSummary {
-			green(cmd.ErrWriter, "Directories are identical.\n")
-		}
-		return nil
-	}
-
-	if showSummary {
-		var parts []string
-		if modifiedFiles > 0 {
-			parts = append(parts, countNoun(modifiedFiles, "modified file"))
-		}
-		if addedFiles > 0 {
-			parts = append(parts, countNoun(addedFiles, "added file"))
-		}
-		if removedFiles > 0 {
-			parts = append(parts, countNoun(removedFiles, "removed file"))
-		}
-		if addedDirs > 0 {
-			parts = append(parts, countNoun(addedDirs, "added dir"))
-		}
-		if removedDirs > 0 {
-			parts = append(parts, countNoun(removedDirs, "removed dir"))
-		}
-		if len(failures) > 0 {
-			parts = append(parts, countNoun(len(failures), "unreadable path"))
-		}
-
-		summary := strings.Join(parts, ", ")
-
-		// append note if directories were skipped and --show-all isn't active
-		if !cmd.Bool("show-all") && (addedDirs > 0 || removedDirs > 0) {
-			summary += " (subdirectories/files inside them not listed)"
-		}
-
-		cyan(cmd.ErrWriter, "Summary: %s\n", summary)
-	}
-
-	if len(failures) > 0 {
-		if showSummary {
-			red(cmd.ErrWriter, "Comparison is incomplete.\n")
-		}
-		return fmt.Errorf("%s could not be read", countNoun(len(failures), "path"))
-	}
-	if hasModified || (hasAdded && hasRemoved) {
-		if showSummary {
-			red(cmd.ErrWriter, "Directories are divergent.\n")
-		}
-		return ErrDiffsFound
-	}
-	if hasAdded {
-		if showSummary {
-			yellow(cmd.ErrWriter, "Directory A is a subset of directory B.\n")
-		}
-		return ErrASubsetB
-	}
-	if hasRemoved {
-		if showSummary {
-			yellow(cmd.ErrWriter, "Directory B is a subset of directory A.\n")
-		}
-		return ErrBSubsetA
-	}
-	return nil
+	enc := json.NewEncoder(cmd.Writer)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
 }
 
 // countNoun formats n followed by noun, pluralized unless n is 1.

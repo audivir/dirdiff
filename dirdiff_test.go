@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -877,5 +878,42 @@ func TestQuickMode(t *testing.T) {
 	out, _, err = runApp(t, dirA, dirB)
 	if !errors.Is(err, ErrDiffsFound) || out != "~ stamped\n" {
 		t.Errorf("expected stamped to be modified, got %v:\n%s", err, out)
+	}
+}
+
+func TestJSONOutput(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permissions are not enforced")
+	}
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "mod"), "1")
+	createFile(t, filepath.Join(dirB, "mod"), "2")
+	createFile(t, filepath.Join(dirA, "gone"), "x")
+	createFile(t, filepath.Join(dirB, "new", "f"), "x")
+	createFile(t, filepath.Join(dirA, "secret"), "s")
+	createFile(t, filepath.Join(dirB, "secret"), "s")
+	if err := os.Chmod(filepath.Join(dirA, "secret"), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, err := runApp(t, "--json", dirA, dirB)
+
+	if err == nil || errors.Is(err, ErrDiffsFound) || errOut != "" {
+		t.Errorf("expected read error and no stderr, got %v:\n%s", err, errOut)
+	}
+	var report jsonReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	wantDiffs := []jsonDiff{
+		{Type: "removed", Path: "gone"},
+		{Type: "modified", Path: "mod"},
+		{Type: "added", Path: "new", Dir: true},
+	}
+	if report.Result != "incomplete" || !slices.Equal(report.Differences, wantDiffs) ||
+		len(report.Errors) != 1 || report.Errors[0].Side != "A" || report.Errors[0].Path != "secret" ||
+		report.Summary != (counts{ModifiedFiles: 1, RemovedFiles: 1, AddedDirs: 1, UnreadablePaths: 1}) {
+		t.Errorf("unexpected report:\n%s", out)
 	}
 }

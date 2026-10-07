@@ -99,6 +99,7 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "no-color", Aliases: []string{"C"}, Usage: "Disable color output"},
 			&cli.BoolFlag{Name: "show-all", Aliases: []string{"a"}, Usage: "Traverse also files in added/removed directories"},
 			&cli.BoolFlag{Name: "tree", Aliases: []string{"t"}, Usage: "Print side-by-side tree view of differences"},
+			&cli.BoolFlag{Name: "json", Usage: "Print the result as one JSON document"},
 			// remote
 			&cli.StringSliceFlag{Name: "remote-bin", Aliases: []string{"r"}, Usage: "Path to dirdiff binary on remote host."},
 			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on all remote hosts"},
@@ -132,6 +133,9 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 
 	if cmd.Bool("flat") && cmd.Bool("tree") {
 		return &ParsedArgs{}, fmt.Errorf("--tree cannot be combined with --flat, which has no shared directory structure")
+	}
+	if cmd.Bool("json") && cmd.Bool("tree") {
+		return &ParsedArgs{}, fmt.Errorf("--json cannot be combined with --tree")
 	}
 
 	isRemoteA := isRemotePath(args[0])
