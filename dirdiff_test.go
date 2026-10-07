@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/rpc"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -30,6 +31,11 @@ func (a *oldAgent) Ping(args PingArgs, reply *PingReply) error {
 }
 
 func TestMain(m *testing.M) {
+	// the test binary doubles as the command line tool for tests that need a real process.
+	if os.Getenv("DIRDIFF_TEST_MAIN") != "" {
+		main()
+		os.Exit(0)
+	}
 	// the test binary doubles as the remote agent started by the fake ssh.
 	if len(os.Args) > 1 && os.Args[1] == "--agent" {
 		if os.Getenv("DIRDIFF_TEST_OLD_AGENT") != "" {
@@ -930,5 +936,41 @@ func TestNullOutput(t *testing.T) {
 	want := "+\x00new\nline\x00~\x00one/mod file\x00two/mod file\x00"
 	if !errors.Is(err, ErrDiffsFound) || out != want {
 		t.Errorf("got %v: %q, want %q", err, out, want)
+	}
+}
+
+func TestInterruptExitsWith130(t *testing.T) {
+	binDir := setupFakeRemote(t, "current")
+	// an ssh that never finishes authenticating, like one waiting for a password.
+	script := "#!/bin/sh\ncase \"$*\" in *-O*) exit 1;; esac\nexec sleep 30\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-P", "host:/x", t.TempDir())
+	cmd.Env = append(os.Environ(), "DIRDIFF_TEST_MAIN=1")
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("dirdiff did not exit after the interrupt")
+	}
+	if cmd.ProcessState.ExitCode() != 130 || !strings.Contains(errBuf.String(), "Interrupted") {
+		t.Errorf("expected exit 130 with Interrupted, got %d:\n%s", cmd.ProcessState.ExitCode(), errBuf.String())
 	}
 }
