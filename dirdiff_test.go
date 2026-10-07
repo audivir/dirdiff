@@ -4,11 +4,74 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/rpc"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// oldAgent serves Ping like agents from before the protocol version existed.
+type oldAgent struct{}
+
+func (a *oldAgent) Ping(args PingArgs, reply *PingReply) error {
+	reply.Status = "OK"
+	return nil
+}
+
+func TestMain(m *testing.M) {
+	// the test binary doubles as the remote agent started by the fake ssh.
+	if len(os.Args) > 1 && os.Args[1] == "--agent" {
+		if os.Getenv("DIRDIFF_TEST_OLD_AGENT") != "" {
+			_ = rpc.RegisterName("RpcAgent", new(oldAgent))
+			fmt.Println(READY_MSG)
+			rpc.ServeConn(struct {
+				io.Reader
+				io.Writer
+				io.Closer
+			}{os.Stdin, os.Stdout, os.Stdin})
+			os.Exit(0)
+		}
+		_ = runAgent()
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// setupFakeRemote puts a fake ssh on PATH that runs the remote command locally, and
+// returns the directory holding it. A dirdiff agent is added to PATH if agentOnPath is set.
+func setupFakeRemote(t *testing.T, agentOnPath bool) string {
+	binDir := t.TempDir()
+	script := "#!/bin/sh\nshift\nexec sh -c \"$*\"\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if agentOnPath {
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(exe, filepath.Join(binDir, BIN_NAME)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	return binDir
+}
+
+// runApp runs dirdiff with args and returns its stdout, stderr, and error.
+func runApp(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	var outBuf, errBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &errBuf
+	err := app.Run(context.Background(), append([]string{"dirdiff", "--no-color", "--no-progressbar"}, args...))
+	return outBuf.String(), errBuf.String(), err
+}
 
 // Helper to create a file with content
 func createFile(t *testing.T, path, content string) {
@@ -486,5 +549,29 @@ func TestRemoteStartupErrorIncludesStderr(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "Connection refused") {
 		t.Errorf("expected ssh error message, got: %v", err)
+	}
+}
+
+func TestRemoteAgentProtocolMismatch(t *testing.T) {
+	setupFakeRemote(t, true)
+	t.Setenv("DIRDIFF_TEST_OLD_AGENT", "1")
+	dir := t.TempDir()
+
+	_, _, err := runApp(t, "--remote-bin", BIN_NAME, "host:"+dir, dir)
+
+	if err == nil || !strings.Contains(err.Error(), "version unknown and protocol 0") {
+		t.Errorf("expected protocol mismatch error, got: %v", err)
+	}
+}
+
+func TestRemoteAgent(t *testing.T) {
+	setupFakeRemote(t, true)
+	root := setupTestEnv(t)
+	defer func() { _ = os.RemoveAll(root) }()
+
+	out, _, err := runApp(t, "host:"+filepath.Join(root, "test_base"), filepath.Join(root, "test_modified"))
+
+	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(out) != "~ file2" {
+		t.Errorf("expected file2 to be modified, got %v:\n%s", err, out)
 	}
 }

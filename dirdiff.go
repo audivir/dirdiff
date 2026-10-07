@@ -36,9 +36,12 @@ func init() {
 }
 
 const (
-	BIN_NAME     = "dirdiff"
-	READY_MSG    = "__DIRDIFF_AGENT_READY__"
-	TIME_WARNING = 2 * time.Second
+	BIN_NAME  = "dirdiff"
+	READY_MSG = "__DIRDIFF_AGENT_READY__"
+	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
+	// Agents without it report 0.
+	PROTOCOL_VERSION = 1
+	TIME_WARNING     = 2 * time.Second
 )
 
 var (

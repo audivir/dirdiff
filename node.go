@@ -16,7 +16,11 @@ import (
 )
 
 type PingArgs struct{}
-type PingReply struct{ Status string }
+type PingReply struct {
+	Status   string
+	Version  string
+	Protocol int
+}
 
 type ScanArgs struct {
 	Root      string
@@ -211,6 +215,15 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	if err := client.Call("RpcAgent.Ping", PingArgs{}, reply); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("remote agent RPC ping failed: %w", err)
+	}
+	if reply.Protocol != PROTOCOL_VERSION {
+		_ = client.Close()
+		agentVersion := reply.Version
+		if agentVersion == "" {
+			agentVersion = "unknown"
+		}
+		return nil, fmt.Errorf("remote agent %s on %s has version %s and protocol %d, but version %s needs protocol %d",
+			agentBin, host, agentVersion, reply.Protocol, version, PROTOCOL_VERSION)
 	}
 
 	return &RemoteNode{cmd: cmd, client: client, root: root, stderrDone: stderrDone}, nil

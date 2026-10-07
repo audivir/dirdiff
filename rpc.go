@@ -25,6 +25,8 @@ func runAgent() error {
 
 func (a *RpcAgent) Ping(args PingArgs, reply *PingReply) error {
 	reply.Status = "OK"
+	reply.Version = version
+	reply.Protocol = PROTOCOL_VERSION
 	return nil
 }
 
