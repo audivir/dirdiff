@@ -173,13 +173,22 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	filesA, dirsA, failedA, err := nodeA.Scan(includes, excludes, args.FollowSym)
-	if err != nil {
-		return fmt.Errorf("scan A error: %w", err)
+	var filesA map[string]int64
+	var dirsA []string
+	var failedA map[string]string
+	var errA error
+	scannedA := make(chan struct{})
+	go func() {
+		defer close(scannedA)
+		filesA, dirsA, failedA, errA = nodeA.Scan(includes, excludes, args.FollowSym)
+	}()
+	filesB, dirsB, failedB, errB := nodeB.Scan(includes, excludes, args.FollowSym)
+	<-scannedA
+	if errA != nil {
+		return fmt.Errorf("scan A error: %w", errA)
 	}
-	filesB, dirsB, failedB, err := nodeB.Scan(includes, excludes, args.FollowSym)
-	if err != nil {
-		return fmt.Errorf("scan B error: %w", err)
+	if errB != nil {
+		return fmt.Errorf("scan B error: %w", errB)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
