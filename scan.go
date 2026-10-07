@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 )
 
 // coreScan scans a directory tree and returns a map of relative file names
 // to file sizes, the list of directories, and the paths that could not be read.
-// If includes is empty, all files are included if they are not excluded.
+// If includes is empty, all files are included if they are not excluded. Otherwise only
+// directories containing an included file are listed.
 // Exclusion is applied after inclusion.
 func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
 	files := make(map[string]int64)
@@ -134,5 +137,19 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 	if err := walk(rootDir); err != nil {
 		return nil, nil, nil, err
 	}
+	if len(incGlobs) > 0 {
+		dirs = dirsContaining(dirs, files)
+	}
 	return files, dirs, failed, nil
+}
+
+// dirsContaining returns the dirs that contain at least one of files.
+func dirsContaining(dirs []string, files map[string]int64) []string {
+	used := make(map[string]bool)
+	for f := range files {
+		for d := path.Dir(f); d != "." && !used[d]; d = path.Dir(d) {
+			used[d] = true
+		}
+	}
+	return slices.DeleteFunc(dirs, func(d string) bool { return !used[d] })
 }

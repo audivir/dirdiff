@@ -428,3 +428,22 @@ func TestBareNameExcludeMatchesAtAnyDepth(t *testing.T) {
 		t.Errorf("expected only node_modules_old to differ, got %v:\n%s", err, outBuf.String())
 	}
 }
+
+func TestIncludeSkipsDirsWithoutMatches(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "sub", "f.go"), "1")
+	createFile(t, filepath.Join(dirB, "sub", "f.go"), "1")
+	createFile(t, filepath.Join(dirA, "docs", "x.md"), "x")
+	createFile(t, filepath.Join(dirB, "new", "g.go"), "1")
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-i", "*.go", dirA, dirB})
+
+	if !errors.Is(err, ErrASubsetB) || strings.TrimSpace(outBuf.String()) != "+ new/" {
+		t.Errorf("expected only new/ to be added, got %v:\n%s", err, outBuf.String())
+	}
+}
