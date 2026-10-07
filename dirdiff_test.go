@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // oldAgent serves Ping like agents from before the protocol version existed.
@@ -850,5 +851,31 @@ func TestRemoteBatchReportsErrorsPerFile(t *testing.T) {
 
 	if err == nil || errors.Is(err, ErrDiffsFound) || out != "~ c\n" || !strings.Contains(errOut, "error: A: ") || !strings.Contains(errOut, "/b: permission denied") {
 		t.Errorf("expected c modified and b unreadable, got %v:\n%s%s", err, out, errOut)
+	}
+}
+
+func TestQuickMode(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	stamp := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	// same size and time but different content, and same content but different time.
+	for dir, content := range map[string]string{dirA: "aaa", dirB: "bbb"} {
+		createFile(t, filepath.Join(dir, "stamped"), content)
+		if err := os.Chtimes(filepath.Join(dir, "stamped"), stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		createFile(t, filepath.Join(dir, "touched"), "same")
+	}
+	if err := os.Chtimes(filepath.Join(dirB, "touched"), stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := runApp(t, "--quick", dirA, dirB)
+	if err != nil || out != "" {
+		t.Errorf("expected identical with --quick, got %v:\n%s", err, out)
+	}
+	out, _, err = runApp(t, dirA, dirB)
+	if !errors.Is(err, ErrDiffsFound) || out != "~ stamped\n" {
+		t.Errorf("expected stamped to be modified, got %v:\n%s", err, out)
 	}
 }

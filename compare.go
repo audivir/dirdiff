@@ -8,12 +8,12 @@ const (
 
 // makeBatches groups jobs for the workers. With batching, files up to PRECHECK_SIZE are grouped
 // so that a remote node hashes many of them per request, while larger files run alone.
-func makeBatches(jobs []CompareJob, sizes map[string]int64, batching bool) [][]CompareJob {
+func makeBatches(jobs []CompareJob, sizes map[string]FileMeta, batching bool) [][]CompareJob {
 	var batches [][]CompareJob
 	var current []CompareJob
 	var currentBytes int64
 	for _, j := range jobs {
-		size := sizes[j.PathA]
+		size := sizes[j.PathA].Size
 		if !batching || size > PRECHECK_SIZE {
 			batches = append(batches, []CompareJob{j})
 			continue

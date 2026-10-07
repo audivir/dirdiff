@@ -87,6 +87,7 @@ func newApp() *cli.Command {
 			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
+			&cli.BoolFlag{Name: "quick", Usage: "Treat files with equal size and modification time as identical without reading them"},
 			// hashing
 			&cli.StringSliceFlag{Name: "fast", Aliases: []string{"f"}, Usage: "Glob patterns to use fast SHA256 hashes (sparse-hashing) for"},
 			&cli.StringFlag{Name: "fast-limit", Aliases: []string{"l"}, Usage: "Size limit for fast SHA256 hashes (default 1MB)", HideDefault: true, Value: "1MB"},

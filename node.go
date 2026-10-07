@@ -29,10 +29,16 @@ type ScanArgs struct {
 	FollowSym bool
 }
 
+// FileMeta stores the size and modification time in seconds of a scanned file.
+type FileMeta struct {
+	Size    int64
+	ModTime int64
+}
+
 type ScanReply struct {
 	// Root is the scanned root with symlinks resolved, used for all later requests.
 	Root   string
-	Files  map[string]int64
+	Files  map[string]FileMeta
 	Dirs   []string
 	Failed map[string]string
 	Error  string
@@ -69,7 +75,7 @@ type HashBatchReply struct {
 }
 
 type DirNode interface {
-	Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error)
+	Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error)
 	GetMD5(relPath string, followSym bool) (string, error)
 	GetSHA(relPath string, limit int64, followSym bool) (string, error)
 	// GetSHAs hashes several files at once and returns the hash or error of each.
@@ -121,7 +127,7 @@ func (n *LocalNode) path(relPath string) string {
 	return filepath.Join(n.root, filepath.FromSlash(relPath))
 }
 
-func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
+func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
 	return coreScan(n.root, includes, excludes, followSym)
 }
 func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
@@ -348,7 +354,7 @@ func waitStderr(done <-chan struct{}) {
 	}
 }
 
-func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
+func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
 	reply := &ScanReply{}
 	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes, FollowSym: followSym}, reply)
 	if reply.Error != "" {

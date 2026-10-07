@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 3
+	PROTOCOL_VERSION = 4
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -96,7 +96,7 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 }
 
 // flatIndex maps file names to their paths and fails if a name occurs more than once.
-func flatIndex(files map[string]int64, side string) (map[string]string, error) {
+func flatIndex(files map[string]FileMeta, side string) (map[string]string, error) {
 	byName := make(map[string][]string)
 	for p := range files {
 		byName[path.Base(p)] = append(byName[path.Base(p)], p)
@@ -173,7 +173,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	var filesA map[string]int64
+	var filesA map[string]FileMeta
 	var dirsA []string
 	var failedA map[string]string
 	var errA error
@@ -299,7 +299,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 
 	sort.Slice(commonJobs, func(i, j int) bool {
-		return filesA[commonJobs[i].PathA] > filesA[commonJobs[j].PathA]
+		return filesA[commonJobs[i].PathA].Size > filesA[commonJobs[j].PathA].Size
 	})
 
 	localA, okA := nodeA.(*LocalNode)
@@ -329,7 +329,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	var barWg sync.WaitGroup
 	var totalBytes int64
 	for _, j := range commonJobs {
-		totalBytes += filesA[j.PathA]
+		totalBytes += filesA[j.PathA].Size
 	}
 
 	if !cmd.Bool("quiet") && !cmd.Bool("no-progressbar") && totalBytes > 0 {
@@ -356,6 +356,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}()
 	}
 
+	quick := cmd.Bool("quick")
 	limitFor := func(p string) int64 {
 		for _, g := range fastGlobs {
 			if g.Match(p) {
@@ -366,7 +367,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 	// finish reports the outcome of one job.
 	finish := func(j CompareJob, equal bool, errA, errB error) {
-		defer func() { progressCh <- filesA[j.PathA] }()
+		defer func() { progressCh <- filesA[j.PathA].Size }()
 		if reportErrs(j, errA, errB) {
 			return
 		}
@@ -375,12 +376,17 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}
 	}
 	compareBatch := func(batch []CompareJob) {
-		// files of different sizes differ without reading them.
+		// files of different sizes differ without reading them, and with --quick, files with
+		// equal modification times are identical without reading them.
 		var toRead []CompareJob
 		for _, j := range batch {
-			if filesA[j.PathA] != filesB[j.PathB] {
+			metaA, metaB := filesA[j.PathA], filesB[j.PathB]
+			switch {
+			case metaA.Size != metaB.Size:
 				finish(j, false, nil, nil)
-			} else {
+			case quick && metaA.ModTime == metaB.ModTime:
+				finish(j, true, nil, nil)
+			default:
 				toRead = append(toRead, j)
 			}
 		}
@@ -405,7 +411,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 			finish(j, equal, errA, errB)
 		default:
 			j := toRead[0]
-			equal, errA, errB := compareByHash(nodeA, nodeB, j, filesA[j.PathA], limitFor(j.PathA), args.FollowSym)
+			equal, errA, errB := compareByHash(nodeA, nodeB, j, filesA[j.PathA].Size, limitFor(j.PathA), args.FollowSym)
 			finish(j, equal, errA, errB)
 		}
 		if time.Since(start) > TIME_WARNING && args.Verbose {

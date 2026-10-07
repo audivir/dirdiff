@@ -37,6 +37,8 @@ Common options:
 - `-L, --follow-symlinks`: follow symbolic links. Broken or looping links are compared as links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be
   unique on each side.
+- `--quick`: treat files with equal size and modification time (in seconds) as identical
+  without reading them. Files with other modification times are still compared by content.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus
   `-l, --fast-limit` and `-g, --global-limit` to control the size limits used.
 - `-t, --tree`: print a side-by-side tree view of the differences.

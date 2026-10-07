@@ -18,8 +18,8 @@ const WALKERS = 8
 // to file sizes, the list of directories, and the paths that could not be read.
 // Excludes apply to files and directories, and an excluded directory is not descended into.
 // Includes then select files, and only directories containing an included file are listed.
-func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
-	files := make(map[string]int64)
+func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
+	files := make(map[string]FileMeta)
 	var dirs []string
 	failed := make(map[string]string)
 
@@ -154,7 +154,7 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 				}
 			}
 			mu.Lock()
-			files[slashRel] = info.Size()
+			files[slashRel] = FileMeta{Size: info.Size(), ModTime: info.ModTime().Unix()}
 			mu.Unlock()
 		}
 		return nil
@@ -172,7 +172,7 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 }
 
 // dirsContaining returns the dirs that contain at least one of files.
-func dirsContaining(dirs []string, files map[string]int64) []string {
+func dirsContaining(dirs []string, files map[string]FileMeta) []string {
 	used := make(map[string]bool)
 	for f := range files {
 		for d := path.Dir(f); d != "." && !used[d]; d = path.Dir(d) {
