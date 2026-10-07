@@ -173,8 +173,16 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 	defer func() { _ = nodeB.Close() }()
 
-	includes := cmd.StringSlice("include")
-	excludes := cmd.StringSlice("exclude")
+	// like in rg, --glob patterns include files, or exclude them if prefixed with !.
+	includes := slices.Clone(cmd.StringSlice("include"))
+	excludes := slices.Clone(cmd.StringSlice("exclude"))
+	for _, g := range cmd.StringSlice("glob") {
+		if pattern, ok := strings.CutPrefix(g, "!"); ok {
+			excludes = append(excludes, pattern)
+		} else {
+			includes = append(includes, g)
+		}
+	}
 	fasts := cmd.StringSlice("fast")
 
 	fastGlobs, err := compileGlobs(fasts)
@@ -454,7 +462,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 
 	var wg sync.WaitGroup
-	workers := int(cmd.Int("workers"))
+	workers := int(cmd.Int("threads"))
 	if workers <= 0 {
 		workers = defaultWorkers(isRemotePath(args.PathA) || isRemotePath(args.PathB))
 	}

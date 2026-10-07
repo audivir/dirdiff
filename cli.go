@@ -96,6 +96,8 @@ func expandArgs(args []string) []string {
 }
 
 func newApp() *cli.Command {
+	// -V shows the version, like in fd and rg, while -v is --verbose.
+	cli.VersionFlag = &cli.BoolFlag{Name: "version", Aliases: []string{"V"}, Usage: "print the version"}
 	return &cli.Command{
 		Name:      BIN_NAME,
 		Usage:     "Compare two directories locally or over SSH.",
@@ -104,10 +106,11 @@ func newApp() *cli.Command {
 		UseShortOptionHandling: true,
 		Version:                version,
 		Flags: []cli.Flag{
-			&cli.StringSliceFlag{Name: "include", Aliases: []string{"i"}, Usage: "Glob patterns to include files/dirs in the comparison"},
-			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
+			&cli.StringSliceFlag{Name: "glob", Aliases: []string{"g"}, Usage: "Glob patterns to include files, or to exclude files and directories if prefixed with !"},
+			&cli.StringSliceFlag{Name: "include", Usage: "Glob patterns to include files in the comparison"},
+			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"E"}, Usage: "Glob patterns to exclude files and directories from the comparison"},
 			&cli.IntFlag{Name: "batch-size", Value: 256, Usage: "Number of small files hashed per request to a remote agent"},
-			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
+			&cli.IntFlag{Name: "threads", Aliases: []string{"j", "w", "workers"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
 			// filtering, named after the flags of fd and rg.
 			&cli.BoolFlag{Name: "hidden", Aliases: []string{"H"}, Usage: "Include hidden files and directories"},
 			&cli.BoolFlag{Name: "no-ignore", Aliases: []string{"I"}, Usage: "Do not respect .gitignore, .ignore, and global ignore files"},
@@ -117,23 +120,24 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "no-ignore-global", Usage: "Do not respect the global git ignore file"},
 			&cli.BoolFlag{Name: "no-require-git", Usage: "Respect .gitignore files also outside of git repositories"},
 			&cli.StringSliceFlag{Name: "ignore-file", Usage: "Additional ignore file in .gitignore format, applied with the lowest priority"},
-			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
+			&cli.BoolFlag{Name: "follow", Aliases: []string{"L", "follow-symlinks"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
 			&cli.BoolFlag{Name: "metadata", Aliases: []string{"m"}, Usage: "Also compare permissions, owner, and group"},
 			&cli.BoolFlag{Name: "quick", Usage: "Treat files with equal size and modification time as identical without reading them"},
 			// hashing
 			&cli.StringSliceFlag{Name: "fast", Aliases: []string{"f"}, Usage: "Glob patterns to use fast SHA256 hashes (sparse-hashing) for"},
 			&cli.StringFlag{Name: "fast-limit", Aliases: []string{"l"}, Usage: "Size limit for fast SHA256 hashes (default 1MB)", HideDefault: true, Value: "1MB"},
-			&cli.StringFlag{Name: "global-limit", Aliases: []string{"g"}, Usage: "Size limit for all SHA256 hashes (default 0 = no limit)", HideDefault: true, Value: "0"},
+			&cli.StringFlag{Name: "global-limit", Usage: "Size limit for all SHA256 hashes (default 0 = no limit)", HideDefault: true, Value: "0"},
 			// verbosity
 			&cli.BoolFlag{Name: "quiet", Aliases: []string{"q"}, Usage: "Disable all output except exit code"},
 			&cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "Print debug info"},
 			&cli.BoolFlag{Name: "no-progressbar", Aliases: []string{"P"}, Usage: "Disable progress bar"},
-			&cli.BoolFlag{Name: "no-color", Aliases: []string{"C"}, Usage: "Disable color output"},
+			&cli.StringFlag{Name: "color", Value: "auto", Usage: "When to use colors: auto, always, or never"},
+			&cli.BoolFlag{Name: "no-color", Aliases: []string{"C"}, Usage: "Disable color output, like --color never"},
 			&cli.BoolFlag{Name: "show-all", Aliases: []string{"a"}, Usage: "Traverse also files in added/removed directories"},
 			&cli.BoolFlag{Name: "tree", Aliases: []string{"t"}, Usage: "Print side-by-side tree view of differences"},
 			&cli.BoolFlag{Name: "json", Usage: "Print the result as one JSON document"},
-			&cli.BoolFlag{Name: "null", Aliases: []string{"z"}, Usage: "Print each status and path terminated by NUL (also -0)"},
+			&cli.BoolFlag{Name: "null", Aliases: []string{"z", "print0"}, Usage: "Print each status and path terminated by NUL (also -0)"},
 			// remote
 			&cli.StringSliceFlag{Name: "remote-bin", Aliases: []string{"r"}, Usage: "Path to dirdiff binary on remote host."},
 			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on all remote hosts"},
@@ -161,6 +165,15 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		return &ParsedArgs{}, fmt.Errorf("expected 2 paths, got %d", len(args))
 	}
 
+	switch cmd.String("color") {
+	case "always":
+		color.NoColor = false
+	case "never":
+		color.NoColor = true
+	case "auto":
+	default:
+		return &ParsedArgs{}, fmt.Errorf("--color must be auto, always, or never")
+	}
 	if cmd.Bool("no-color") {
 		color.NoColor = true
 	}
@@ -246,7 +259,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		Metadata:    cmd.Bool("metadata"),
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,
-		FollowSym:   cmd.Bool("follow-symlinks"),
+		FollowSym:   cmd.Bool("follow"),
 		Flat:        cmd.Bool("flat"),
 		Verbose:     cmd.Bool("verbose") && !cmd.Bool("quiet"),
 	}, nil

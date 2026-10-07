@@ -465,7 +465,7 @@ func TestFollowSymlinks(t *testing.T) {
 	app := newApp()
 	app.Writer = &outBuf
 	app.ErrWriter = &bytes.Buffer{}
-	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-L", "-e", "sub/loop", dirA, dirB})
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-L", "-E", "sub/loop", dirA, dirB})
 	if err != nil {
 		t.Errorf("expected identical, got %v:\n%s", err, outBuf.String())
 	}
@@ -532,7 +532,7 @@ func TestBareNameExcludeMatchesAtAnyDepth(t *testing.T) {
 	app := newApp()
 	app.Writer = &outBuf
 	app.ErrWriter = &bytes.Buffer{}
-	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-e", "node_modules", dirA, dirB})
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-g", "!node_modules", dirA, dirB})
 
 	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(outBuf.String()) != "~ p/node_modules_old" {
 		t.Errorf("expected only node_modules_old to differ, got %v:\n%s", err, outBuf.String())
@@ -551,7 +551,7 @@ func TestIncludeSkipsDirsWithoutMatches(t *testing.T) {
 	app := newApp()
 	app.Writer = &outBuf
 	app.ErrWriter = &bytes.Buffer{}
-	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-i", "*.go", dirA, dirB})
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-g", "*.go", dirA, dirB})
 
 	if !errors.Is(err, ErrASubsetB) || strings.TrimSpace(outBuf.String()) != "+ new/" {
 		t.Errorf("expected only new/ to be added, got %v:\n%s", err, outBuf.String())

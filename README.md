@@ -47,12 +47,13 @@ Filtering options, named as in `fd` and `rg`:
 
 Common options:
 
-- `-i, --include`, `-e, --exclude`: glob patterns to include or exclude files and
-  directories from the comparison. Patterns match the relative path, and patterns without
-  a `/` also match a name at any depth, as in `.gitignore`.
-- `-w, --workers`: number of parallel workers, defaults to 4 (or fewer CPUs) for local paths
+- `-g, --glob`: glob patterns to include files, or to exclude files and directories if
+  prefixed with `!`, as in `rg`. `--include` and `-E, --exclude` do the same without the
+  prefix. Patterns match the relative path, and patterns without a `/` also match a name at
+  any depth, as in `.gitignore`.
+- `-j, --threads`: number of parallel workers, defaults to 4 (or fewer CPUs) for local paths
   and 16 with a remote path.
-- `-L, --follow-symlinks`: follow symbolic links. Broken or looping links are compared as links.
+- `-L, --follow`: follow symbolic links. Broken or looping links are compared as links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be
   unique on each side.
 - `-m, --metadata`: also compare permissions, owner, and group of files and directories, and
@@ -62,16 +63,16 @@ Common options:
 - `--quick`: treat files with equal size and modification time (in seconds) as identical
   without reading them. Files with other modification times are still compared by content.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus
-  `-l, --fast-limit` and `-g, --global-limit` to control the size limits used.
+  `-l, --fast-limit` and `--global-limit` to control the size limits used.
 - `-t, --tree`: print a side-by-side tree view of the differences.
 - `--json`: print one JSON document with the `result` (`identical`, `divergent`,
   `a_subset_of_b`, `b_subset_of_a`, or `incomplete`), the `differences`, the unreadable paths
   in `errors`, and the `summary` counts.
-- `-0, -z, --null`: print each difference as its status (`+`, `-`, `~`, or `*`) and path, each
+- `-0, -z, --null, --print0`: print each difference as its status (`+`, `-`, `~`, or `*`) and path, each
   terminated by NUL. With `--flat`, `~` records also carry the path in directory B.
 - `-a, --show-all`: also traverse files inside added or removed directories.
-- `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
-  output verbosity and styling. A summary is printed to stderr if it is a terminal or with
+- `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `--color auto|always|never`,
+  `-C, --no-color`: control output verbosity and styling. A summary is printed to stderr if it is a terminal or with
   `--verbose`.
 - `-r, --remote-bin`: path to the remote agent binary, once for all hosts or once per host.
   Without it, `dirdiff` uses the agent in `${XDG_CACHE_HOME:-~/.cache}/dirdiff/` or on `$PATH`
