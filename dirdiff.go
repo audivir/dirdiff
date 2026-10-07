@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -24,6 +25,15 @@ import (
 // Version is resolved from module build info for go install, overridden via
 // -ldflags -X main.version=... for release builds, and falls back to dev otherwise.
 var version = "dev"
+
+func init() {
+	if version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+}
 
 const (
 	BIN_NAME     = "dirdiff"
