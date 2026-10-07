@@ -76,6 +76,11 @@ func createNode(ctx context.Context, pathStr, agentBin string, useSudo, verbose 
 
 type LocalNode struct{ root string }
 
+// path returns the local path of relPath.
+func (n *LocalNode) path(relPath string) string {
+	return filepath.Join(n.root, filepath.FromSlash(relPath))
+}
+
 func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
 	return coreScan(n.root, includes, excludes, followSym)
 }

@@ -351,17 +351,6 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 							return
 						}
 
-						md5A, errA := nodeA.GetMD5(j.PathA, args.FollowSym)
-						md5B, errB := nodeB.GetMD5(j.PathB, args.FollowSym)
-
-						if reportErrs(j, errA, errB) {
-							return
-						}
-						if md5A != md5B {
-							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
-							return
-						}
-
 						limit := args.GlobalLimit
 						for _, g := range fastGlobs {
 							if g.Match(j.PathA) {
@@ -371,16 +360,23 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 						}
 
 						start := time.Now()
-						shaA, errA := nodeA.GetSHA(j.PathA, limit, args.FollowSym)
-						shaB, errB := nodeB.GetSHA(j.PathB, limit, args.FollowSym)
+						var equal bool
+						var errA, errB error
+						localA, okA := nodeA.(*LocalNode)
+						localB, okB := nodeB.(*LocalNode)
+						if okA && okB {
+							equal, errA, errB = compareLocal(localA.path(j.PathA), localB.path(j.PathB), limit, args.FollowSym)
+						} else {
+							equal, errA, errB = compareByHash(nodeA, nodeB, j, limit, args.FollowSym)
+						}
 						if time.Since(start) > TIME_WARNING && args.Verbose {
-							_, _ = fmt.Fprintf(cmd.ErrWriter, "SHA check for %s took %v\n", j.PathA, time.Since(start))
+							_, _ = fmt.Fprintf(cmd.ErrWriter, "Comparing %s took %v\n", j.PathA, time.Since(start))
 						}
 
 						if reportErrs(j, errA, errB) {
 							return
 						}
-						if shaA != shaB {
+						if !equal {
 							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
 						}
 					}(path)
@@ -408,6 +404,19 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 
 	return printAndDetermineExit(results, failures, cmd, showSummary)
+}
+
+// compareByHash reports whether a file has the same content on both nodes by comparing a
+// sparse MD5 first and the SHA256 with the given limit second. It returns errors per side.
+func compareByHash(nodeA, nodeB DirNode, j CompareJob, limit int64, followSym bool) (bool, error, error) {
+	md5A, errA := nodeA.GetMD5(j.PathA, followSym)
+	md5B, errB := nodeB.GetMD5(j.PathB, followSym)
+	if errA != nil || errB != nil || md5A != md5B {
+		return false, errA, errB
+	}
+	shaA, errA := nodeA.GetSHA(j.PathA, limit, followSym)
+	shaB, errB := nodeB.GetSHA(j.PathB, limit, followSym)
+	return errA == nil && errB == nil && shaA == shaB, errA, errB
 }
 
 // readPassword reads a password from the terminal with echo disabled.

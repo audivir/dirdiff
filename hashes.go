@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
@@ -61,24 +62,105 @@ func computeSparseHash(path string, h hash.Hash, limit int64, followSym bool) (s
 		return hex.EncodeToString(h.Sum(nil)), nil
 	}
 
+	for _, r := range sparseRegions(fileSize, limit) {
+		if _, err := io.Copy(h, io.NewSectionReader(f, r[0], r[1])); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// sparseRegions returns the offset and length of the beginning, middle, and end regions that
+// together cover limit bytes of a file of the given size.
+func sparseRegions(size, limit int64) [3][2]int64 {
 	chunkSize := limit / 3
 	lastChunkSize := limit - (chunkSize * 2)
+	return [3][2]int64{
+		{0, chunkSize},
+		{(size / 2) - (chunkSize / 2), chunkSize},
+		{size - lastChunkSize, lastChunkSize},
+	}
+}
 
-	if _, err := io.CopyN(h, f, chunkSize); err != nil {
-		return "", err
+// compareLocal reports whether two local files of equal size have the same content, reading
+// only the sparse regions if the size exceeds a positive limit. It stops at the first
+// difference, and returns read errors per side.
+func compareLocal(pathA, pathB string, limit int64, followSym bool) (bool, error, error) {
+	fA, linkA, errA := openForCompare(pathA, followSym)
+	fB, linkB, errB := openForCompare(pathB, followSym)
+	defer func() {
+		if fA != nil {
+			_ = fA.Close()
+		}
+		if fB != nil {
+			_ = fB.Close()
+		}
+	}()
+	if errA != nil || errB != nil {
+		return false, errA, errB
 	}
-	if _, err := f.Seek((fileSize/2)-(chunkSize/2), io.SeekStart); err != nil {
-		return "", err
-	}
-	if _, err := io.CopyN(h, f, chunkSize); err != nil {
-		return "", err
-	}
-	if _, err := f.Seek(fileSize-lastChunkSize, io.SeekStart); err != nil {
-		return "", err
-	}
-	if _, err := io.CopyN(h, f, lastChunkSize); err != nil {
-		return "", err
+	if fA == nil || fB == nil {
+		return fA == nil && fB == nil && linkA == linkB, nil, nil
 	}
 
-	return hex.EncodeToString(h.Sum(nil)), nil
+	info, err := fA.Stat()
+	if err != nil {
+		return false, err, nil
+	}
+	size := info.Size()
+	if limit <= 0 || size <= limit {
+		return equalReaders(fA, fB)
+	}
+	for _, r := range sparseRegions(size, limit) {
+		equal, errA, errB := equalReaders(io.NewSectionReader(fA, r[0], r[1]), io.NewSectionReader(fB, r[0], r[1]))
+		if !equal || errA != nil || errB != nil {
+			return false, errA, errB
+		}
+	}
+	return true, nil, nil
+}
+
+// openForCompare opens path for reading, or returns the link target if path is a symlink
+// that is not followed.
+func openForCompare(path string, followSym bool) (*os.File, string, error) {
+	if !followSym {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			return nil, target, err
+		}
+	}
+	f, err := os.Open(path)
+	return f, "", err
+}
+
+// equalReaders reports whether a and b yield the same bytes, and returns read errors per side.
+func equalReaders(a, b io.Reader) (bool, error, error) {
+	bufA := make([]byte, 64*1024)
+	bufB := make([]byte, 64*1024)
+	for {
+		nA, errA := io.ReadFull(a, bufA)
+		nB, errB := io.ReadFull(b, bufB)
+		errA, errB = readError(errA), readError(errB)
+		if errA != nil || errB != nil {
+			return false, errA, errB
+		}
+		if nA != nB || !bytes.Equal(bufA[:nA], bufB[:nB]) {
+			return false, nil, nil
+		}
+		if nA < len(bufA) {
+			return true, nil, nil
+		}
+	}
+}
+
+// readError drops the errors io.ReadFull returns for a short final read.
+func readError(err error) error {
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		return nil
+	}
+	return err
 }
