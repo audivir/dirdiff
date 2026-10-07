@@ -22,11 +22,23 @@ type PingReply struct {
 	Protocol int
 }
 
-type ScanArgs struct {
-	Root      string
+// ScanOptions stores what a scan includes and how it treats symlinks.
+type ScanOptions struct {
 	Includes  []string
 	Excludes  []string
 	FollowSym bool
+}
+
+// ScanResult stores the files, directories, and unreadable paths found by a scan.
+type ScanResult struct {
+	Files  map[string]FileMeta
+	Dirs   []string
+	Failed map[string]string
+}
+
+type ScanArgs struct {
+	Root    string
+	Options ScanOptions
 }
 
 // FileMeta stores the size and modification time in seconds of a scanned file.
@@ -38,9 +50,7 @@ type FileMeta struct {
 type ScanReply struct {
 	// Root is the scanned root with symlinks resolved, used for all later requests.
 	Root   string
-	Files  map[string]FileMeta
-	Dirs   []string
-	Failed map[string]string
+	Result ScanResult
 	Error  string
 }
 
@@ -75,7 +85,7 @@ type HashBatchReply struct {
 }
 
 type DirNode interface {
-	Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error)
+	Scan(opts ScanOptions) (*ScanResult, error)
 	GetMD5(relPath string, followSym bool) (string, error)
 	GetSHA(relPath string, limit int64, followSym bool) (string, error)
 	// GetSHAs hashes several files at once and returns the hash or error of each.
@@ -127,8 +137,8 @@ func (n *LocalNode) path(relPath string) string {
 	return filepath.Join(n.root, filepath.FromSlash(relPath))
 }
 
-func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
-	return coreScan(n.root, includes, excludes, followSym)
+func (n *LocalNode) Scan(opts ScanOptions) (*ScanResult, error) {
+	return coreScan(n.root, opts)
 }
 func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
 	return coreMD5(n.root, relPath, followSym)
@@ -354,16 +364,16 @@ func waitStderr(done <-chan struct{}) {
 	}
 }
 
-func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
+func (n *RemoteNode) Scan(opts ScanOptions) (*ScanResult, error) {
 	reply := &ScanReply{}
-	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes, FollowSym: followSym}, reply)
+	if err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Options: opts}, reply); err != nil {
+		return nil, err
+	}
 	if reply.Error != "" {
-		return nil, nil, nil, errors.New(reply.Error)
+		return nil, errors.New(reply.Error)
 	}
-	if reply.Root != "" {
-		n.root = reply.Root
-	}
-	return reply.Files, reply.Dirs, reply.Failed, err
+	n.root = reply.Root
+	return &reply.Result, nil
 }
 
 func (n *RemoteNode) GetMD5(relPath string, followSym bool) (string, error) {

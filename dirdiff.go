@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 4
+	PROTOCOL_VERSION = 5
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -179,16 +179,15 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	var filesA map[string]FileMeta
-	var dirsA []string
-	var failedA map[string]string
+	scanOpts := ScanOptions{Includes: includes, Excludes: excludes, FollowSym: args.FollowSym}
+	var scanA *ScanResult
 	var errA error
 	scannedA := make(chan struct{})
 	go func() {
 		defer close(scannedA)
-		filesA, dirsA, failedA, errA = nodeA.Scan(includes, excludes, args.FollowSym)
+		scanA, errA = nodeA.Scan(scanOpts)
 	}()
-	filesB, dirsB, failedB, errB := nodeB.Scan(includes, excludes, args.FollowSym)
+	scanB, errB := nodeB.Scan(scanOpts)
 	<-scannedA
 	if errA != nil {
 		return fmt.Errorf("scan A error: %w", errA)
@@ -196,6 +195,8 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	if errB != nil {
 		return fmt.Errorf("scan B error: %w", errB)
 	}
+	filesA, dirsA, failedA := scanA.Files, scanA.Dirs, scanA.Failed
+	filesB, dirsB, failedB := scanB.Files, scanB.Dirs, scanB.Failed
 	if err := ctx.Err(); err != nil {
 		return err
 	}

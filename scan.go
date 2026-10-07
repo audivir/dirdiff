@@ -14,34 +14,35 @@ import (
 // WALKERS bounds the directories walked in parallel.
 const WALKERS = 8
 
-// coreScan scans a directory tree and returns a map of relative file names
-// to file sizes, the list of directories, and the paths that could not be read.
+// coreScan scans a directory tree for its files, directories, and the paths that could not be
+// read, all relative to rootDir.
 // Excludes apply to files and directories, and an excluded directory is not descended into.
 // Includes then select files, and only directories containing an included file are listed.
-func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]FileMeta, []string, map[string]string, error) {
+func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
+	followSym := opts.FollowSym
 	files := make(map[string]FileMeta)
 	var dirs []string
 	failed := make(map[string]string)
 
-	incGlobs, err := compileGlobs(includes)
+	incGlobs, err := compileGlobs(opts.Includes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
-	excGlobs, err := compileGlobs(excludes)
+	excGlobs, err := compileGlobs(opts.Excludes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	rootDir, err = filepath.EvalSymlinks(rootDir)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	rootInfo, err := os.Stat(rootDir)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	if !rootInfo.IsDir() {
-		return nil, nil, nil, fmt.Errorf("%s is not a directory", rootDir)
+		return nil, fmt.Errorf("%s is not a directory", rootDir)
 	}
 
 	// real paths of the directories being walked, used to detect symlink loops.
@@ -163,12 +164,12 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 	err = walk(rootDir, nil)
 	wg.Wait()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	if len(incGlobs) > 0 {
 		dirs = dirsContaining(dirs, files)
 	}
-	return files, dirs, failed, nil
+	return &ScanResult{Files: files, Dirs: dirs, Failed: failed}, nil
 }
 
 // dirsContaining returns the dirs that contain at least one of files.

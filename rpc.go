@@ -38,14 +38,13 @@ func (a *RpcAgent) Scan(args ScanArgs, reply *ScanReply) error {
 		reply.Error = err.Error()
 		return nil
 	}
-	files, dirs, failed, err := coreScan(root, args.Includes, args.Excludes, args.FollowSym)
+	result, err := coreScan(root, args.Options)
 	if err != nil {
 		reply.Error = err.Error()
+		return nil
 	}
 	reply.Root = root
-	reply.Files = files
-	reply.Dirs = dirs
-	reply.Failed = failed
+	reply.Result = *result
 	return nil
 }
 
