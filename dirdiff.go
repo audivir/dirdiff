@@ -363,7 +363,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 							return
 						}
 						if shaA != shaB {
-							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathA, Type: Modified, IsDir: false}
+							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
 						}
 					}(path)
 				}

@@ -390,3 +390,22 @@ func TestFlatRejectsDuplicateNames(t *testing.T) {
 		t.Errorf("expected no output, got:\n%s", outBuf.String())
 	}
 }
+
+func TestFlatModifiedShowsBothPaths(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	// the difference lies outside the regions sampled by the sparse MD5 pre-check.
+	content := strings.Repeat("A", 4096)
+	createFile(t, filepath.Join(dirA, "one", "z"), content)
+	createFile(t, filepath.Join(dirB, "two", "z"), content[:1000]+"B"+content[1001:])
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "--flat", dirA, dirB})
+
+	if !errors.Is(err, ErrDiffsFound) || !strings.Contains(outBuf.String(), "~ one/z (in A) | two/z (in B)") {
+		t.Errorf("expected modified with both paths, got %v:\n%s", err, outBuf.String())
+	}
+}
