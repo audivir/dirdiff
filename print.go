@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -57,7 +56,7 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 			for _, item := range results {
 				suffix := ""
 				if item.IsDir {
-					suffix = string(os.PathSeparator)
+					suffix = "/"
 				}
 				switch item.Type {
 				case Added:

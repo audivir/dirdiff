@@ -225,7 +225,7 @@ func generateTreeLines(node *TreeNode, prefixLeft, prefixRight string, lines *[]
 
 		suffix := ""
 		if child.IsDir {
-			suffix = string(os.PathSeparator)
+			suffix = "/"
 		}
 
 		nameStr := child.Name + suffix
