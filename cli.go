@@ -38,6 +38,7 @@ type ParsedArgs struct {
 	AgentBinA, AgentBinB string
 	SudoA, SudoB         bool
 	NoInstall            bool
+	BatchSize            int
 	FastLimit            int64
 	GlobalLimit          int64
 	FollowSym            bool
@@ -84,6 +85,7 @@ func newApp() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "include", Aliases: []string{"i"}, Usage: "Glob patterns to include files/dirs in the comparison"},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
+			&cli.IntFlag{Name: "batch-size", Value: 256, Usage: "Number of small files hashed per request to a remote agent"},
 			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
@@ -169,6 +171,10 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		return &ParsedArgs{}, err
 	}
 
+	if cmd.Int("batch-size") < 1 {
+		return &ParsedArgs{}, fmt.Errorf("--batch-size must be at least 1")
+	}
+
 	fastLimit, err := units.RAMInBytes(cmd.String("fast-limit"))
 	if err != nil || fastLimit <= 0 {
 		return &ParsedArgs{}, fmt.Errorf("invalid --fast-limit")
@@ -187,6 +193,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		SudoA:       sudoA,
 		SudoB:       sudoB,
 		NoInstall:   cmd.Bool("no-install"),
+		BatchSize:   int(cmd.Int("batch-size")),
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,
 		FollowSym:   cmd.Bool("follow-symlinks"),

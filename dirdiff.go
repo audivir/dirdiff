@@ -311,7 +311,12 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	localA, okA := nodeA.(*LocalNode)
 	localB, okB := nodeB.(*LocalNode)
 	bothLocal := okA && okB
-	batches := makeBatches(commonJobs, filesA, !bothLocal)
+	// local files are compared directly, so batching only applies with a remote node.
+	batchSize := 0
+	if !bothLocal {
+		batchSize = args.BatchSize
+	}
+	batches := makeBatches(commonJobs, filesA, batchSize)
 	jobCh := make(chan []CompareJob, len(batches))
 	for _, batch := range batches {
 		jobCh <- batch

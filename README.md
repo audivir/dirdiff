@@ -57,6 +57,8 @@ Common options:
   agent into that cache: the running binary for the same platform, or otherwise the release
   binary for the remote platform, downloaded into the local user cache first and verified
   against the `SHA256SUMS` of the release. Agents of other versions are removed from both caches.
+- `--batch-size`: number of files up to 1 MB hashed per request to a remote agent, 256 by
+  default. Larger batches need fewer round trips on slow links.
 - `--no-install`: never install an agent, only use an existing compatible one.
 - `-s, --sudo`, `--sudo-a`, `--sudo-b`: escalate privileges via sudo on all remote hosts,
   or only on host A or host B.

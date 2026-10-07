@@ -820,8 +820,8 @@ func TestDownloadAgent(t *testing.T) {
 func TestRemoteBatchesMapResultsToFiles(t *testing.T) {
 	setupFakeRemote(t, "current")
 	dirA, dirB := t.TempDir(), t.TempDir()
-	// more files than fit in one batch, with differences spread across batches.
-	for i := range BATCH_FILES + 50 {
+	// several batches, with differences spread across them.
+	for i := range 330 {
 		name := fmt.Sprintf("f%03d", i)
 		createFile(t, filepath.Join(dirA, name), "same")
 		content := "same"
@@ -831,9 +831,9 @@ func TestRemoteBatchesMapResultsToFiles(t *testing.T) {
 		createFile(t, filepath.Join(dirB, name), content)
 	}
 
-	out, errOut, err := runApp(t, "host:"+dirA, dirB)
+	out, errOut, err := runApp(t, "--batch-size", "60", "host:"+dirA, dirB)
 
-	want := "~ f007\n~ f107\n~ f207\n"
+	want := "~ f007\n~ f107\n~ f207\n~ f307\n"
 	if !errors.Is(err, ErrDiffsFound) || out != want {
 		t.Errorf("got %v:\n%s%s\nwant:\n%s", err, out, errOut, want)
 	}

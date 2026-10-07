@@ -1,24 +1,22 @@
 package main
 
-const (
-	// BATCH_FILES and BATCH_BYTES bound how many small files are hashed in one request.
-	BATCH_FILES = 256
-	BATCH_BYTES = 32 * 1024 * 1024
-)
+// BATCH_BYTES bounds the total size of the files hashed in one request.
+const BATCH_BYTES = 32 * 1024 * 1024
 
-// makeBatches groups jobs for the workers. With batching, files up to PRECHECK_SIZE are grouped
-// so that a remote node hashes many of them per request, while larger files run alone.
-func makeBatches(jobs []CompareJob, sizes map[string]FileMeta, batching bool) [][]CompareJob {
+// makeBatches groups jobs for the workers. With a positive batchSize, up to batchSize files of
+// at most PRECHECK_SIZE are grouped, so that a remote node hashes many of them per request.
+// Larger files and all files without batching run alone.
+func makeBatches(jobs []CompareJob, sizes map[string]FileMeta, batchSize int) [][]CompareJob {
 	var batches [][]CompareJob
 	var current []CompareJob
 	var currentBytes int64
 	for _, j := range jobs {
 		size := sizes[j.PathA].Size
-		if !batching || size > PRECHECK_SIZE {
+		if batchSize <= 0 || size > PRECHECK_SIZE {
 			batches = append(batches, []CompareJob{j})
 			continue
 		}
-		if len(current) == BATCH_FILES || currentBytes+size > BATCH_BYTES {
+		if len(current) == batchSize || currentBytes+size > BATCH_BYTES {
 			batches = append(batches, current)
 			current, currentBytes = nil, 0
 		}
