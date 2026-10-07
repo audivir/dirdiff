@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -614,6 +615,10 @@ func TestRemoteAgentInstall(t *testing.T) {
 	for _, agent := range []string{"", "old"} {
 		t.Run("path agent "+agent, func(t *testing.T) {
 			setupFakeRemote(t, agent)
+			cache := filepath.Join(os.Getenv("XDG_CACHE_HOME"), BIN_NAME)
+			for _, old := range []string{"v0.0.1", "dev-0123456789ab", "notes"} {
+				createFile(t, filepath.Join(cache, old, BIN_NAME), "old")
+			}
 			dirA, dirB := t.TempDir(), t.TempDir()
 			createFile(t, filepath.Join(dirA, "f"), "1")
 			createFile(t, filepath.Join(dirB, "f"), "2")
@@ -633,10 +638,21 @@ func TestRemoteAgentInstall(t *testing.T) {
 				t.Errorf("expected cached agent: %v", err)
 			}
 
-			// the cached agent is reused.
+			// the cached agent is reused, and agents of other versions are removed.
 			_, errOut, _ = runApp(t, "host:"+dirA, dirB)
 			if strings.Contains(errOut, "Installing") {
 				t.Errorf("expected no second install, got:\n%s", errOut)
+			}
+			entries, err := os.ReadDir(cache)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			if !slices.Equal(names, []string{key, "notes"}) {
+				t.Errorf("expected only the current agent and notes, got %v", names)
 			}
 		})
 	}

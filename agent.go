@@ -154,9 +154,12 @@ func installAgent(ctx context.Context, conn *sshConn, key string, notify io.Writ
 
 	_, _ = fmt.Fprintf(notify, "Installing %s %s (%s/%s) on %s\n", BIN_NAME, version, goos, goarch, conn.host)
 	// write to a temporary name first, so a concurrent or interrupted upload never leaves a
-	// partial agent behind.
+	// partial agent behind. Then remove the agents of other versions.
+	base := `"${XDG_CACHE_HOME:-$HOME/.cache}"/` + BIN_NAME
 	script := `d=` + remoteCacheExpr(key) + ` && mkdir -p "$d" && cat > "$d/.upload.$$" && ` +
-		`chmod 755 "$d/.upload.$$" && mv -f "$d/.upload.$$" "$d/` + BIN_NAME + `"`
+		`chmod 755 "$d/.upload.$$" && mv -f "$d/.upload.$$" "$d/` + BIN_NAME + `" && ` +
+		`for x in ` + base + `/v* ` + base + `/dev-*; do ` +
+		`if [ -d "$x" ] && [ "$x" != "$d" ]; then rm -rf "$x"; fi; done`
 	upload := conn.command(ctx, "sh -c "+shellQuote(script))
 	upload.Stdin = f
 	upload.Stderr = os.Stderr
