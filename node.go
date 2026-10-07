@@ -59,18 +59,28 @@ type DirNode interface {
 
 // createNode creates a LocalNode or RemoteNode depending on the path string.
 // For remote paths, it creates a RemoteNode using the provided agent binary and sudo flag.
-func createNode(ctx context.Context, pathStr, agentBin string, useSudo, verbose bool, notify io.Writer, conns sshConns) (DirNode, string, error) {
+// remoteOptions stores how the agent of a remote path is started.
+type remoteOptions struct {
+	agentBin  string
+	sudo      bool
+	noInstall bool
+	verbose   bool
+	// notify receives messages about agent installs.
+	notify io.Writer
+}
+
+func createNode(ctx context.Context, pathStr string, opts remoteOptions, conns sshConns) (DirNode, string, error) {
 	if strings.Contains(pathStr, ":") && !filepath.IsAbs(pathStr) {
 		parts := strings.SplitN(pathStr, ":", 2)
 		host, rPath := parts[0], parts[1]
-		if verbose {
+		if opts.verbose {
 			fmt.Fprintf(os.Stderr, "Connecting to %s via SSH...\n", host)
 		}
 		conn, err := conns.get(ctx, host)
 		if err != nil {
 			return nil, rPath, err
 		}
-		node, err := NewRemoteNode(ctx, conn, rPath, agentBin, useSudo, notify)
+		node, err := NewRemoteNode(ctx, conn, rPath, opts)
 		return node, rPath, err
 	}
 	absPath, err := filepath.Abs(pathStr)
@@ -112,12 +122,12 @@ type RemoteNode struct {
 // NewRemoteNode creates a new RemoteNode instance.
 // Without agentBin, it uses the agent in the remote cache or on PATH, and installs a matching
 // agent into the remote cache if neither exists or speaks this protocol version.
-func NewRemoteNode(ctx context.Context, conn *sshConn, root, agentBin string, useSudo bool, notify io.Writer) (*RemoteNode, error) {
-	host := conn.host
+func NewRemoteNode(ctx context.Context, conn *sshConn, root string, opts remoteOptions) (*RemoteNode, error) {
+	host, agentBin := conn.host, opts.agentBin
 	// format the prompt so we can intercept it from stderr
 	promptMarker := fmt.Sprintf("[sudo] password for %s on %s: ", BIN_NAME, host)
 	sudo := ""
-	if useSudo {
+	if opts.sudo {
 		sudo = "sudo -S -p " + shellQuote(promptMarker) + " "
 	}
 
@@ -146,16 +156,20 @@ func NewRemoteNode(ctx context.Context, conn *sshConn, root, agentBin string, us
 		// hosts without sh, such as Windows, can still run an agent on PATH.
 		node, reply, err = startAgent(ctx, conn, root, sudo+BIN_NAME+" --agent", promptMarker)
 	}
-	switch {
-	case err == nil && checkProtocol(reply, BIN_NAME, host) == nil:
-		return node, nil
-	case err == nil:
+	if err == nil {
+		err = checkProtocol(reply, BIN_NAME, host)
+		if err == nil {
+			return node, nil
+		}
 		_ = node.Close()
-	case !errors.Is(err, errAgentMissing):
+	} else if !errors.Is(err, errAgentMissing) {
 		return nil, err
 	}
 
-	if err := installAgent(ctx, conn, key, notify); err != nil {
+	if opts.noInstall {
+		return nil, fmt.Errorf("%w; install dirdiff %s on %s, pass --remote-bin, or drop --no-install", err, version, host)
+	}
+	if err := installAgent(ctx, conn, key, opts.notify); err != nil {
 		return nil, fmt.Errorf("installing agent on %s: %w", host, err)
 	}
 	node, reply, err = startAgent(ctx, conn, root, "sh -c "+shellQuote("exec "+sudo+cached+" --agent"), promptMarker)

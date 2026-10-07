@@ -37,6 +37,7 @@ type ParsedArgs struct {
 	PathA, PathB         string
 	AgentBinA, AgentBinB string
 	SudoA, SudoB         bool
+	NoInstall            bool
 	FastLimit            int64
 	GlobalLimit          int64
 	FollowSym            bool
@@ -102,6 +103,7 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on all remote hosts"},
 			&cli.BoolFlag{Name: "sudo-a", Usage: "Escalate privileges via sudo on remote host A"},
 			&cli.BoolFlag{Name: "sudo-b", Usage: "Escalate privileges via sudo on remote host B"},
+			&cli.BoolFlag{Name: "no-install", Usage: "Never install an agent on remote hosts, only use an existing compatible one"},
 			&cli.BoolFlag{Name: "agent", Hidden: true, Usage: "Run as RPC agent over stdin/stdout"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -172,6 +174,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		AgentBinB:   agentBinB,
 		SudoA:       sudoA,
 		SudoB:       sudoB,
+		NoInstall:   cmd.Bool("no-install"),
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,
 		FollowSym:   cmd.Bool("follow-symlinks"),

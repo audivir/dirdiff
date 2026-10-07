@@ -707,3 +707,24 @@ func TestRemoteSharesOneConnectionPerHost(t *testing.T) {
 		t.Errorf("expected one master used by all calls and closed at the end, got:\n%s", log)
 	}
 }
+
+func TestRemoteNoInstall(t *testing.T) {
+	for agent, want := range map[string]string{"": "no dirdiff agent found", "old": "protocol 0"} {
+		t.Run("path agent "+agent, func(t *testing.T) {
+			setupFakeRemote(t, agent)
+			dir := t.TempDir()
+
+			_, errOut, err := runApp(t, "--no-install", "host:"+dir, dir)
+
+			if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "--no-install") {
+				t.Errorf("expected error with %q, got: %v", want, err)
+			}
+			if strings.Contains(errOut, "Installing") {
+				t.Errorf("expected no install, got:\n%s", errOut)
+			}
+			if _, err := os.Stat(filepath.Join(os.Getenv("XDG_CACHE_HOME"), BIN_NAME)); !os.IsNotExist(err) {
+				t.Errorf("expected empty remote cache, got: %v", err)
+			}
+		})
+	}
+}

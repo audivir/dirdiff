@@ -150,13 +150,15 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	conns := sshConns{}
 	defer conns.closeAll()
 
-	nodeA, _, err := createNode(ctx, args.PathA, args.AgentBinA, args.SudoA, args.Verbose, notify, conns)
+	optsA := remoteOptions{agentBin: args.AgentBinA, sudo: args.SudoA, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify}
+	nodeA, _, err := createNode(ctx, args.PathA, optsA, conns)
 	if err != nil {
 		return fmt.Errorf("setup A failed: %w", err)
 	}
 	defer func() { _ = nodeA.Close() }()
 
-	nodeB, _, err := createNode(ctx, args.PathB, args.AgentBinB, args.SudoB, args.Verbose, notify, conns)
+	optsB := remoteOptions{agentBin: args.AgentBinB, sudo: args.SudoB, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify}
+	nodeB, _, err := createNode(ctx, args.PathB, optsB, conns)
 	if err != nil {
 		return fmt.Errorf("setup B failed: %w", err)
 	}
