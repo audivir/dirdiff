@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"syscall"
 )
 
 // coreScan scans a directory tree and returns a map of relative file names
@@ -156,9 +155,10 @@ func dirsContaining(dirs []string, files map[string]int64) []string {
 	return slices.DeleteFunc(dirs, func(d string) bool { return !used[d] })
 }
 
-// isBrokenLink reports whether the symlink at path points to a missing target or loops.
-// Like find -L, such links are compared as links even when following symlinks.
+// isBrokenLink reports whether the symlink at path cannot be resolved for a reason other than
+// permissions, such as a missing target or a loop. Like find -L, such links are compared as
+// links even when following symlinks.
 func isBrokenLink(path string) bool {
 	_, err := os.Stat(path)
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ELOOP)
+	return err != nil && !errors.Is(err, fs.ErrPermission)
 }
