@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 )
 
+// readSlots bounds the files hashed at once across all requests, since parallel file reads
+// contend in the kernel beyond a few threads.
+var readSlots = make(chan struct{}, defaultWorkers(false))
+
 func coreMD5(rootDir, relPath string, followSym bool) (string, error) {
 	fullPath := filepath.Join(rootDir, filepath.FromSlash(relPath))
 	return computeSparseHash(fullPath, md5.New(), 1024, followSym)
@@ -24,6 +28,9 @@ func coreSHA(rootDir, relPath string, limit int64, followSym bool) (string, erro
 // computeSparseHash computes a sparse hash of a file if the file size is greater than the limit.
 // It reads roughly 1/3 of the file from the beginning, middle, and end.
 func computeSparseHash(path string, h hash.Hash, limit int64, followSym bool) (string, error) {
+	readSlots <- struct{}{}
+	defer func() { <-readSlots }()
+
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err

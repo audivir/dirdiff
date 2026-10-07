@@ -6,6 +6,7 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 type RpcAgent struct{}
@@ -54,6 +55,24 @@ func (a *RpcAgent) GetMD5(args HashArgs, reply *HashReply) error {
 		reply.Error = err.Error()
 	}
 	reply.Hash = hashStr
+	return nil
+}
+
+// GetSHAs hashes the items in parallel. The total of parallel reads is bounded by readSlots.
+func (a *RpcAgent) GetSHAs(args HashBatchArgs, reply *HashBatchReply) error {
+	reply.Hashes = make([]string, len(args.Items))
+	reply.Errors = make([]string, len(args.Items))
+	var wg sync.WaitGroup
+	for i, item := range args.Items {
+		wg.Go(func() {
+			hash, err := coreSHA(args.Root, item.RelPath, item.Limit, args.FollowSym)
+			reply.Hashes[i] = hash
+			if err != nil {
+				reply.Errors[i] = err.Error()
+			}
+		})
+	}
+	wg.Wait()
 	return nil
 }
 

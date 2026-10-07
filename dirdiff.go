@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 2
+	PROTOCOL_VERSION = 3
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -293,9 +293,13 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return filesA[commonJobs[i].PathA] > filesA[commonJobs[j].PathA]
 	})
 
-	jobCh := make(chan CompareJob, len(commonJobs))
-	for _, job := range commonJobs {
-		jobCh <- job
+	localA, okA := nodeA.(*LocalNode)
+	localB, okB := nodeB.(*LocalNode)
+	bothLocal := okA && okB
+	batches := makeBatches(commonJobs, filesA, !bothLocal)
+	jobCh := make(chan []CompareJob, len(batches))
+	for _, batch := range batches {
+		jobCh <- batch
 	}
 	close(jobCh)
 
@@ -336,6 +340,63 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}()
 	}
 
+	limitFor := func(p string) int64 {
+		for _, g := range fastGlobs {
+			if g.Match(p) {
+				return args.FastLimit
+			}
+		}
+		return args.GlobalLimit
+	}
+	// finish reports the outcome of one job.
+	finish := func(j CompareJob, equal bool, errA, errB error) {
+		defer func() { progressCh <- struct{}{} }()
+		if reportErrs(j, errA, errB) {
+			return
+		}
+		if !equal {
+			resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
+		}
+	}
+	compareBatch := func(batch []CompareJob) {
+		// files of different sizes differ without reading them.
+		var toRead []CompareJob
+		for _, j := range batch {
+			if filesA[j.PathA] != filesB[j.PathB] {
+				finish(j, false, nil, nil)
+			} else {
+				toRead = append(toRead, j)
+			}
+		}
+		if len(toRead) == 0 {
+			return
+		}
+
+		start := time.Now()
+		switch {
+		case len(batch) > 1:
+			limits := make([]int64, len(toRead))
+			for i, j := range toRead {
+				limits[i] = limitFor(j.PathA)
+			}
+			equal, errsA, errsB := hashBatch(nodeA, nodeB, toRead, limits, args.FollowSym)
+			for i, j := range toRead {
+				finish(j, equal[i], errsA[i], errsB[i])
+			}
+		case bothLocal:
+			j := toRead[0]
+			equal, errA, errB := compareLocal(localA.path(j.PathA), localB.path(j.PathB), limitFor(j.PathA), args.FollowSym)
+			finish(j, equal, errA, errB)
+		default:
+			j := toRead[0]
+			equal, errA, errB := compareByHash(nodeA, nodeB, j, filesA[j.PathA], limitFor(j.PathA), args.FollowSym)
+			finish(j, equal, errA, errB)
+		}
+		if time.Since(start) > TIME_WARNING && args.Verbose {
+			_, _ = fmt.Fprintf(cmd.ErrWriter, "Comparing %s (%s) took %v\n", toRead[0].PathA, countNoun(len(toRead), "file"), time.Since(start))
+		}
+	}
+
 	var wg sync.WaitGroup
 	workers := int(cmd.Int("workers"))
 	if workers <= 0 {
@@ -350,47 +411,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 				select {
 				case <-ctx.Done():
 					return
-				case path, ok := <-jobCh:
+				case batch, ok := <-jobCh:
 					if !ok {
 						return
 					}
-					func(j CompareJob) {
-						defer func() { progressCh <- struct{}{} }()
-
-						if filesA[j.PathA] != filesB[j.PathB] {
-							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
-							return
-						}
-
-						limit := args.GlobalLimit
-						for _, g := range fastGlobs {
-							if g.Match(j.PathA) {
-								limit = args.FastLimit
-								break
-							}
-						}
-
-						start := time.Now()
-						var equal bool
-						var errA, errB error
-						localA, okA := nodeA.(*LocalNode)
-						localB, okB := nodeB.(*LocalNode)
-						if okA && okB {
-							equal, errA, errB = compareLocal(localA.path(j.PathA), localB.path(j.PathB), limit, args.FollowSym)
-						} else {
-							equal, errA, errB = compareByHash(nodeA, nodeB, j, filesA[j.PathA], limit, args.FollowSym)
-						}
-						if time.Since(start) > TIME_WARNING && args.Verbose {
-							_, _ = fmt.Fprintf(cmd.ErrWriter, "Comparing %s took %v\n", j.PathA, time.Since(start))
-						}
-
-						if reportErrs(j, errA, errB) {
-							return
-						}
-						if !equal {
-							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
-						}
-					}(path)
+					compareBatch(batch)
 				}
 			}
 		}()

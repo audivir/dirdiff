@@ -50,10 +50,30 @@ type HashReply struct {
 	Error string
 }
 
+// HashItem stores a file to hash and its sparse hashing limit.
+type HashItem struct {
+	RelPath string
+	Limit   int64
+}
+
+type HashBatchArgs struct {
+	Root      string
+	Items     []HashItem
+	FollowSym bool
+}
+
+// HashBatchReply stores the hash or error of each item, in the order of the request.
+type HashBatchReply struct {
+	Hashes []string
+	Errors []string
+}
+
 type DirNode interface {
 	Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error)
 	GetMD5(relPath string, followSym bool) (string, error)
 	GetSHA(relPath string, limit int64, followSym bool) (string, error)
+	// GetSHAs hashes several files at once and returns the hash or error of each.
+	GetSHAs(items []HashItem, followSym bool) ([]string, []error)
 	Close() error
 }
 
@@ -109,6 +129,13 @@ func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
 }
 func (n *LocalNode) GetSHA(relPath string, limit int64, followSym bool) (string, error) {
 	return coreSHA(n.root, relPath, limit, followSym)
+}
+func (n *LocalNode) GetSHAs(items []HashItem, followSym bool) ([]string, []error) {
+	hashes, errs := make([]string, len(items)), make([]error, len(items))
+	for i, item := range items {
+		hashes[i], errs[i] = coreSHA(n.root, item.RelPath, item.Limit, followSym)
+	}
+	return hashes, errs
 }
 func (n *LocalNode) Close() error { return nil }
 
@@ -348,6 +375,22 @@ func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string
 		return "", errors.New(reply.Error)
 	}
 	return reply.Hash, err
+}
+func (n *RemoteNode) GetSHAs(items []HashItem, followSym bool) ([]string, []error) {
+	reply := &HashBatchReply{}
+	errs := make([]error, len(items))
+	if err := n.client.Call("RpcAgent.GetSHAs", HashBatchArgs{Root: n.root, Items: items, FollowSym: followSym}, reply); err != nil {
+		for i := range errs {
+			errs[i] = err
+		}
+		return make([]string, len(items)), errs
+	}
+	for i, msg := range reply.Errors {
+		if msg != "" {
+			errs[i] = errors.New(msg)
+		}
+	}
+	return reply.Hashes, errs
 }
 func (n *RemoteNode) Close() error {
 	_ = n.client.Close()

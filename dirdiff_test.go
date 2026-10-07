@@ -808,3 +808,47 @@ func TestDownloadAgent(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteBatchesMapResultsToFiles(t *testing.T) {
+	setupFakeRemote(t, "current")
+	dirA, dirB := t.TempDir(), t.TempDir()
+	// more files than fit in one batch, with differences spread across batches.
+	for i := range BATCH_FILES + 50 {
+		name := fmt.Sprintf("f%03d", i)
+		createFile(t, filepath.Join(dirA, name), "same")
+		content := "same"
+		if i%100 == 7 {
+			content = "diff"
+		}
+		createFile(t, filepath.Join(dirB, name), content)
+	}
+
+	out, errOut, err := runApp(t, "host:"+dirA, dirB)
+
+	want := "~ f007\n~ f107\n~ f207\n"
+	if !errors.Is(err, ErrDiffsFound) || out != want {
+		t.Errorf("got %v:\n%s%s\nwant:\n%s", err, out, errOut, want)
+	}
+}
+
+func TestRemoteBatchReportsErrorsPerFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions are not enforced for root")
+	}
+	setupFakeRemote(t, "current")
+	dirA, dirB := t.TempDir(), t.TempDir()
+	for _, name := range []string{"a", "b", "c"} {
+		createFile(t, filepath.Join(dirA, name), "x")
+		createFile(t, filepath.Join(dirB, name), "x")
+	}
+	createFile(t, filepath.Join(dirB, "c"), "y")
+	if err := os.Chmod(filepath.Join(dirA, "b"), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, err := runApp(t, "host:"+dirA, dirB)
+
+	if err == nil || errors.Is(err, ErrDiffsFound) || out != "~ c\n" || !strings.Contains(errOut, "error: A: ") || !strings.Contains(errOut, "/b: permission denied") {
+		t.Errorf("expected c modified and b unreadable, got %v:\n%s%s", err, out, errOut)
+	}
+}
