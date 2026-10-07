@@ -127,6 +127,10 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		color.NoColor = true
 	}
 
+	if cmd.Bool("flat") && cmd.Bool("tree") {
+		return &ParsedArgs{}, fmt.Errorf("--tree cannot be combined with --flat, which has no shared directory structure")
+	}
+
 	isRemoteA := isRemotePath(args[0])
 	isRemoteB := isRemotePath(args[1])
 
