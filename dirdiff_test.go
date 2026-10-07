@@ -1242,3 +1242,34 @@ func TestCacheReusesHashes(t *testing.T) {
 		t.Errorf("expected identical without --cache, got %v:\n%s", err, out)
 	}
 }
+
+func TestRemoteAgentSavesHashCache(t *testing.T) {
+	setupFakeRemote(t, "current")
+	for _, env := range []string{"HOME", "LocalAppData"} {
+		t.Setenv(env, t.TempDir())
+	}
+	resetHashCaches()
+	t.Cleanup(resetHashCaches)
+	dirA, dirB := t.TempDir(), t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	for _, dir := range []string{dirA, dirB} {
+		createFile(t, filepath.Join(dir, "f"), "same")
+		if err := os.Chtimes(filepath.Join(dir, "f"), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if out, errOut, err := runApp(t, "--cache", "host:"+dirA, dirB); err != nil || out != "" {
+		t.Fatalf("expected identical, got %v:\n%s%s", err, out, errOut)
+	}
+
+	// the agent runs in its own process and writes its cache when the connection closes.
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(cacheDir, BIN_NAME, "hashes", "*.gob"))
+	if len(files) != 2 {
+		t.Errorf("expected the caches of both sides, got %v", files)
+	}
+}
