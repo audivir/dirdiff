@@ -17,6 +17,7 @@ type counts struct {
 	RemovedFiles    int `json:"removed_files"`
 	AddedDirs       int `json:"added_dirs"`
 	RemovedDirs     int `json:"removed_dirs"`
+	MetadataChanges int `json:"metadata_changes"`
 	UnreadablePaths int `json:"unreadable_paths"`
 }
 
@@ -35,6 +36,8 @@ func countResults(results []DiffItem, failures []ReadFailure) counts {
 			c.RemovedFiles++
 		case item.Type == Modified:
 			c.ModifiedFiles++
+		case item.Type == MetaChanged:
+			c.MetadataChanges++
 		}
 	}
 	return c
@@ -47,7 +50,7 @@ func verdict(c counts) (string, error) {
 	switch {
 	case c.UnreadablePaths > 0:
 		return "incomplete", fmt.Errorf("%s could not be read", countNoun(c.UnreadablePaths, "path"))
-	case c.ModifiedFiles > 0 || (hasAdded && hasRemoved):
+	case c.ModifiedFiles > 0 || c.MetadataChanges > 0 || (hasAdded && hasRemoved):
 		return "divergent", ErrDiffsFound
 	case hasAdded:
 		return "a_subset_of_b", ErrASubsetB
@@ -101,6 +104,7 @@ func printList(results []DiffItem, cmd *cli.Command) {
 	red := color.New(color.FgRed).FprintfFunc()
 	green := color.New(color.FgGreen).FprintfFunc()
 	yellow := color.New(color.FgYellow).FprintfFunc()
+	magenta := color.New(color.FgMagenta).FprintfFunc()
 	for _, item := range results {
 		suffix := ""
 		if item.IsDir {
@@ -117,6 +121,8 @@ func printList(results []DiffItem, cmd *cli.Command) {
 			} else {
 				yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
 			}
+		case MetaChanged:
+			magenta(cmd.Writer, "* %s%s (%s)\n", item.Path, suffix, formatChanges(item.Changes))
 		}
 	}
 }
@@ -129,7 +135,7 @@ func writeNull(results []DiffItem, flat bool, cmd *cli.Command) {
 		if item.IsDir {
 			path += "/"
 		}
-		_, _ = fmt.Fprintf(cmd.Writer, "%s\x00%s\x00", [...]string{Added: "+", Removed: "-", Modified: "~"}[item.Type], path)
+		_, _ = fmt.Fprintf(cmd.Writer, "%s\x00%s\x00", [...]string{Added: "+", Removed: "-", Modified: "~", MetaChanged: "*"}[item.Type], path)
 		if flat && item.Type == Modified {
 			pathB := item.PathB
 			if pathB == "" {
@@ -163,6 +169,7 @@ func printSummary(c counts, result string, cmd *cli.Command) {
 		{c.RemovedFiles, "removed file"},
 		{c.AddedDirs, "added dir"},
 		{c.RemovedDirs, "removed dir"},
+		{c.MetadataChanges, "metadata change"},
 		{c.UnreadablePaths, "unreadable path"},
 	} {
 		if part.n > 0 {
@@ -190,10 +197,11 @@ func printSummary(c counts, result string, cmd *cli.Command) {
 
 // jsonDiff stores one difference in the JSON output.
 type jsonDiff struct {
-	Type  string `json:"type"`
-	Path  string `json:"path"`
-	PathB string `json:"path_b,omitempty"`
-	Dir   bool   `json:"dir"`
+	Type    string       `json:"type"`
+	Path    string       `json:"path"`
+	PathB   string       `json:"path_b,omitempty"`
+	Dir     bool         `json:"dir"`
+	Changes []MetaChange `json:"changes,omitempty"`
 }
 
 // jsonError stores one unreadable path in the JSON output.
@@ -215,7 +223,7 @@ type jsonReport struct {
 func writeJSON(cmd *cli.Command, results []DiffItem, failures []ReadFailure, c counts, result string) error {
 	report := jsonReport{Result: result, Differences: []jsonDiff{}, Errors: []jsonError{}, Summary: c}
 	for _, item := range results {
-		d := jsonDiff{Type: [...]string{Added: "added", Removed: "removed", Modified: "modified"}[item.Type], Path: item.Path, Dir: item.IsDir}
+		d := jsonDiff{Type: [...]string{Added: "added", Removed: "removed", Modified: "modified", MetaChanged: "metadata"}[item.Type], Path: item.Path, Dir: item.IsDir, Changes: item.Changes}
 		if item.PathB != item.Path {
 			d.PathB = item.PathB
 		}
@@ -227,6 +235,15 @@ func writeJSON(cmd *cli.Command, results []DiffItem, failures []ReadFailure, c c
 	enc := json.NewEncoder(cmd.Writer)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
+}
+
+// formatChanges formats metadata changes as "field a -> b" items.
+func formatChanges(changes []MetaChange) string {
+	parts := make([]string, len(changes))
+	for i, ch := range changes {
+		parts[i] = fmt.Sprintf("%s %s -> %s", ch.Field, ch.A, ch.B)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // countNoun formats n followed by noun, pluralized unless n is 1.

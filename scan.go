@@ -23,6 +23,7 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 	files := make(map[string]FileMeta)
 	var dirs []string
 	failed := make(map[string]string)
+	dirMeta := make(map[string]FileMeta)
 
 	incGlobs, err := compileGlobs(opts.Includes)
 	if err != nil {
@@ -104,6 +105,11 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 			if slashRel != "" {
 				mu.Lock()
 				dirs = append(dirs, slashRel)
+				if opts.Metadata {
+					meta := FileMeta{Mode: uint32(info.Mode())}
+					setOwner(&meta, info)
+					dirMeta[slashRel] = meta
+				}
 				mu.Unlock()
 			}
 			if followSym {
@@ -155,7 +161,11 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 				}
 			}
 			mu.Lock()
-			files[slashRel] = FileMeta{Size: info.Size(), ModTime: info.ModTime().Unix()}
+			meta := FileMeta{Size: info.Size(), ModTime: info.ModTime().Unix(), Mode: uint32(info.Mode())}
+			if opts.Metadata {
+				setOwner(&meta, info)
+			}
+			files[slashRel] = meta
 			mu.Unlock()
 		}
 		return nil
@@ -169,7 +179,7 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 	if len(incGlobs) > 0 {
 		dirs = dirsContaining(dirs, files)
 	}
-	return &ScanResult{Files: files, Dirs: dirs, Failed: failed}, nil
+	return &ScanResult{Files: files, Dirs: dirs, Failed: failed, DirMeta: dirMeta}, nil
 }
 
 // dirsContaining returns the dirs that contain at least one of files.

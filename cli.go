@@ -39,6 +39,7 @@ type ParsedArgs struct {
 	SudoA, SudoB         bool
 	NoInstall            bool
 	BatchSize            int
+	Metadata             bool
 	FastLimit            int64
 	GlobalLimit          int64
 	FollowSym            bool
@@ -89,6 +90,7 @@ func newApp() *cli.Command {
 			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
+			&cli.BoolFlag{Name: "metadata", Aliases: []string{"m"}, Usage: "Also compare permissions, owner, and group"},
 			&cli.BoolFlag{Name: "quick", Usage: "Treat files with equal size and modification time as identical without reading them"},
 			// hashing
 			&cli.StringSliceFlag{Name: "fast", Aliases: []string{"f"}, Usage: "Glob patterns to use fast SHA256 hashes (sparse-hashing) for"},
@@ -194,6 +196,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		SudoB:       sudoB,
 		NoInstall:   cmd.Bool("no-install"),
 		BatchSize:   int(cmd.Int("batch-size")),
+		Metadata:    cmd.Bool("metadata"),
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,
 		FollowSym:   cmd.Bool("follow-symlinks"),

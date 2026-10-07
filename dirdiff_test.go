@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/rpc"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -917,7 +919,7 @@ func TestJSONOutput(t *testing.T) {
 		{Type: "modified", Path: "mod"},
 		{Type: "added", Path: "new", Dir: true},
 	}
-	if report.Result != "incomplete" || !slices.Equal(report.Differences, wantDiffs) ||
+	if report.Result != "incomplete" || !reflect.DeepEqual(report.Differences, wantDiffs) ||
 		len(report.Errors) != 1 || report.Errors[0].Side != "A" || report.Errors[0].Path != "secret" ||
 		report.Summary != (counts{ModifiedFiles: 1, RemovedFiles: 1, AddedDirs: 1, UnreadablePaths: 1}) {
 		t.Errorf("unexpected report:\n%s", out)
@@ -977,5 +979,81 @@ func TestInterruptExitsWith130(t *testing.T) {
 	}
 	if cmd.ProcessState.ExitCode() != 130 || !strings.Contains(errBuf.String(), "Interrupted") {
 		t.Errorf("expected exit 130 with Interrupted, got %d:\n%s", cmd.ProcessState.ExitCode(), errBuf.String())
+	}
+}
+
+func TestMetadata(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permissions")
+	}
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprintf("remote %v", remote), func(t *testing.T) {
+			prefix := ""
+			if remote {
+				setupFakeRemote(t, "current")
+				prefix = "host:"
+			}
+			root := t.TempDir()
+			dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+			for dir, modes := range map[string][2]os.FileMode{dirA: {0o755, 0o644}, dirB: {0o700, 0o600}} {
+				createFile(t, filepath.Join(dir, "d", "f"), "x")
+				if err := os.Chmod(filepath.Join(dir, "d"), modes[0]); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(filepath.Join(dir, "d", "f"), modes[1]); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			out, _, err := runApp(t, prefix+dirA, dirB)
+			if err != nil || out != "" {
+				t.Errorf("expected identical without --metadata, got %v:\n%s", err, out)
+			}
+			out, _, err = runApp(t, "-m", prefix+dirA, dirB)
+			want := "* d/ (mode 0755 -> 0700)\n* d/f (mode 0644 -> 0600)\n"
+			if !errors.Is(err, ErrDiffsFound) || out != want {
+				t.Errorf("got %v:\n%s\nwant:\n%s", err, out, want)
+			}
+		})
+	}
+}
+
+func TestCompareMeta(t *testing.T) {
+	file := uint32(0o644)
+	link := uint32(fs.ModeSymlink | 0o777)
+	tests := []struct {
+		name string
+		a, b FileMeta
+		want []MetaChange
+	}{
+		{
+			name: "names win over differing ids",
+			a:    FileMeta{Mode: file, HasOwner: true, OwnerID: 501, Owner: "tim", GroupID: 20, Group: "staff"},
+			b:    FileMeta{Mode: file, HasOwner: true, OwnerID: 1000, Owner: "tim", GroupID: 1000, Group: "staff"},
+		},
+		{
+			name: "ids are compared if a name does not resolve",
+			a:    FileMeta{Mode: file, HasOwner: true, OwnerID: 501, Owner: "tim"},
+			b:    FileMeta{Mode: file, HasOwner: true, OwnerID: 1000},
+			want: []MetaChange{{"owner", "tim", "1000"}},
+		},
+		{
+			name: "symlink permissions are ignored",
+			a:    FileMeta{Mode: link},
+			b:    FileMeta{Mode: link &^ 0o077},
+		},
+		{
+			name: "owners are skipped without owner information",
+			a:    FileMeta{Mode: file, HasOwner: true, OwnerID: 501},
+			b:    FileMeta{Mode: 0o600},
+			want: []MetaChange{{"mode", "0644", "0600"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := compareMeta(tt.a, tt.b); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

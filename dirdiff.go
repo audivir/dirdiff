@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 5
+	PROTOCOL_VERSION = 6
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -59,13 +59,16 @@ const (
 	Added ChangeType = iota
 	Removed
 	Modified
+	// MetaChanged marks a file or directory with differing permissions, owner, or group.
+	MetaChanged
 )
 
 type DiffItem struct {
-	Path  string
-	PathB string
-	Type  ChangeType
-	IsDir bool
+	Path    string
+	PathB   string
+	Type    ChangeType
+	IsDir   bool
+	Changes []MetaChange
 }
 
 // ReadFailure stores a path that could not be read on one side and the reason.
@@ -179,7 +182,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	scanOpts := ScanOptions{Includes: includes, Excludes: excludes, FollowSym: args.FollowSym}
+	scanOpts := ScanOptions{Includes: includes, Excludes: excludes, FollowSym: args.FollowSym, Metadata: args.Metadata}
 	var scanA *ScanResult
 	var errA error
 	scannedA := make(chan struct{})
@@ -283,6 +286,23 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 					continue
 				}
 				results = append(results, DiffItem{Path: relPath, Type: Added, IsDir: false})
+			}
+		}
+	}
+
+	if args.Metadata {
+		for _, j := range commonJobs {
+			if changes := compareMeta(filesA[j.PathA], filesB[j.PathB]); len(changes) > 0 {
+				results = append(results, DiffItem{Path: j.PathA, PathB: j.PathB, Type: MetaChanged, Changes: changes})
+			}
+		}
+		if !args.Flat {
+			for d, metaA := range scanA.DirMeta {
+				if metaB, ok := scanB.DirMeta[d]; ok {
+					if changes := compareMeta(metaA, metaB); len(changes) > 0 {
+						results = append(results, DiffItem{Path: d, Type: MetaChanged, IsDir: true, Changes: changes})
+					}
+				}
 			}
 		}
 	}

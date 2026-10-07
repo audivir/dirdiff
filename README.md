@@ -37,6 +37,10 @@ Common options:
 - `-L, --follow-symlinks`: follow symbolic links. Broken or looping links are compared as links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be
   unique on each side.
+- `-m, --metadata`: also compare permissions, owner, and group of files and directories, and
+  list differences as `* path (mode 0644 -> 0600)`. Owners and groups are compared by name
+  where both hosts resolve it, and by ID otherwise. Symlink permissions are ignored, and
+  Windows only compares permissions.
 - `--quick`: treat files with equal size and modification time (in seconds) as identical
   without reading them. Files with other modification times are still compared by content.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus
@@ -45,7 +49,7 @@ Common options:
 - `--json`: print one JSON document with the `result` (`identical`, `divergent`,
   `a_subset_of_b`, `b_subset_of_a`, or `incomplete`), the `differences`, the unreadable paths
   in `errors`, and the `summary` counts.
-- `-z, --null`: print each difference as its status (`+`, `-`, or `~`) and path, each
+- `-z, --null`: print each difference as its status (`+`, `-`, `~`, or `*`) and path, each
   terminated by NUL. With `--flat`, `~` records also carry the path in directory B.
 - `-a, --show-all`: also traverse files inside added or removed directories.
 - `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control

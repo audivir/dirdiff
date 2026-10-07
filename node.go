@@ -27,6 +27,8 @@ type ScanOptions struct {
 	Includes  []string
 	Excludes  []string
 	FollowSym bool
+	// Metadata adds owners and groups, and the metadata of directories.
+	Metadata bool
 }
 
 // ScanResult stores the files, directories, and unreadable paths found by a scan.
@@ -34,6 +36,8 @@ type ScanResult struct {
 	Files  map[string]FileMeta
 	Dirs   []string
 	Failed map[string]string
+	// DirMeta holds the metadata of each directory with metadata scanning.
+	DirMeta map[string]FileMeta
 }
 
 type ScanArgs struct {
@@ -41,10 +45,17 @@ type ScanArgs struct {
 	Options ScanOptions
 }
 
-// FileMeta stores the size and modification time in seconds of a scanned file.
+// FileMeta stores the size, modification time in seconds, and mode of a scanned file. With
+// metadata scanning, it also stores the owner and group as IDs and, where they resolve, names.
 type FileMeta struct {
-	Size    int64
-	ModTime int64
+	Size     int64
+	ModTime  int64
+	Mode     uint32
+	HasOwner bool
+	OwnerID  uint32
+	GroupID  uint32
+	Owner    string
+	Group    string
 }
 
 type ScanReply struct {

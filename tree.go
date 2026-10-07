@@ -152,7 +152,7 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 					curr.Children[part].Status = StatusAdded
 				case Removed:
 					curr.Children[part].Status = StatusRemoved
-				case Modified:
+				case Modified, MetaChanged:
 					curr.Children[part].Status = StatusModified
 				}
 			}
