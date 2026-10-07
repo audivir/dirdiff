@@ -10,9 +10,8 @@ import (
 
 // coreScan scans a directory tree and returns a map of relative file names
 // to file sizes, the list of directories, and the paths that could not be read.
-// If includes is empty, all files are included if they are not excluded. Otherwise only
-// directories containing an included file are listed.
-// Exclusion is applied after inclusion.
+// Excludes apply to files and directories, and an excluded directory is not descended into.
+// Includes then select files, and only directories containing an included file are listed.
 func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
 	files := make(map[string]int64)
 	var dirs []string
