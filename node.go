@@ -30,6 +30,8 @@ type ScanArgs struct {
 }
 
 type ScanReply struct {
+	// Root is the scanned root with symlinks resolved, used for all later requests.
+	Root   string
 	Files  map[string]int64
 	Dirs   []string
 	Failed map[string]string
@@ -70,6 +72,10 @@ func createNode(ctx context.Context, pathStr, agentBin string, useSudo, verbose 
 	absPath, err := filepath.Abs(pathStr)
 	if err != nil {
 		return nil, "", err
+	}
+	// a missing root is reported by the scan.
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = resolved
 	}
 	return &LocalNode{root: absPath}, absPath, nil
 }
@@ -293,6 +299,9 @@ func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[stri
 	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes, FollowSym: followSym}, reply)
 	if reply.Error != "" {
 		return nil, nil, nil, errors.New(reply.Error)
+	}
+	if reply.Root != "" {
+		n.root = reply.Root
 	}
 	return reply.Files, reply.Dirs, reply.Failed, err
 }

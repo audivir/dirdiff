@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/rpc"
 	"os"
+	"path/filepath"
 )
 
 type RpcAgent struct{}
@@ -31,10 +32,16 @@ func (a *RpcAgent) Ping(args PingArgs, reply *PingReply) error {
 }
 
 func (a *RpcAgent) Scan(args ScanArgs, reply *ScanReply) error {
-	files, dirs, failed, err := coreScan(args.Root, args.Includes, args.Excludes, args.FollowSym)
+	root, err := filepath.EvalSymlinks(args.Root)
+	if err != nil {
+		reply.Error = err.Error()
+		return nil
+	}
+	files, dirs, failed, err := coreScan(root, args.Includes, args.Excludes, args.FollowSym)
 	if err != nil {
 		reply.Error = err.Error()
 	}
+	reply.Root = root
 	reply.Files = files
 	reply.Dirs = dirs
 	reply.Failed = failed

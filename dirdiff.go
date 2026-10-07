@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 1
+	PROTOCOL_VERSION = 2
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
