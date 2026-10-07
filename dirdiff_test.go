@@ -101,6 +101,10 @@ func TestDirDiff(t *testing.T) {
 	if err := os.Symlink(baseDir, baseLink); err != nil {
 		t.Fatalf("failed to create symlink: %v", err)
 	}
+	modLink := filepath.Join(root, "test_modified_link")
+	if err := os.Symlink(modDir, modLink); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
 
 	tests := []struct {
 		name          string
@@ -134,6 +138,12 @@ func TestDirDiff(t *testing.T) {
 			expectedError: ErrDiffsFound,
 			shouldContain: []string{"~ file2"},
 			shouldNotHas:  []string{"+", "-"},
+		},
+		{
+			name:          "Symlinked Root (Code 1)",
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", baseDir, modLink},
+			expectedError: ErrDiffsFound,
+			shouldContain: []string{"~ file2"},
 		},
 		{
 			name:          "Mixed Divergence (Code 1)",
@@ -261,5 +271,29 @@ func TestCancelledRunReportsNoResults(t *testing.T) {
 	}
 	if outBuf.Len() != 0 {
 		t.Errorf("expected no output, got:\n%s", outBuf.String())
+	}
+}
+
+func TestInvalidRootIsError(t *testing.T) {
+	root := setupTestEnv(t)
+	defer func() { _ = os.RemoveAll(root) }()
+	baseDir := filepath.Join(root, "test_base")
+
+	for _, other := range []string{filepath.Join(root, "missing"), filepath.Join(baseDir, "file1")} {
+		t.Run(filepath.Base(other), func(t *testing.T) {
+			var outBuf bytes.Buffer
+			app := newApp()
+			app.Writer = &outBuf
+			app.ErrWriter = &bytes.Buffer{}
+
+			err := app.Run(context.Background(), []string{"dirdiff", "--no-progressbar", baseDir, other})
+
+			if err == nil || errors.Is(err, ErrBSubsetA) {
+				t.Errorf("expected scan error, got: %v", err)
+			}
+			if outBuf.Len() != 0 {
+				t.Errorf("expected no output, got:\n%s", outBuf.String())
+			}
+		})
 	}
 }

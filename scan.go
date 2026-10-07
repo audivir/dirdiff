@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -20,6 +21,18 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 	excGlobs, err := compileGlobs(excludes)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	rootDir, err = filepath.EvalSymlinks(rootDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	rootInfo, err := os.Stat(rootDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !rootInfo.IsDir() {
+		return nil, nil, fmt.Errorf("%s is not a directory", rootDir)
 	}
 
 	visitedPaths := make(map[string]bool)
@@ -70,6 +83,9 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 			}
 			entries, err := os.ReadDir(currPath)
 			if err != nil {
+				if slashRel == "" {
+					return err
+				}
 				return nil
 			}
 			for _, e := range entries {
