@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -57,7 +58,7 @@ func main() {
 		stop()
 	}()
 
-	err := app.Run(ctx, os.Args)
+	err := app.Run(ctx, expandArgs(os.Args))
 	if ctx.Err() != nil {
 		fmt.Fprintln(os.Stderr, "Interrupted")
 		os.Exit(130)
@@ -75,6 +76,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
 	}
+}
+
+// expandArgs replaces -0 by --null before the first --, since the flag parser reads -0 as a
+// number and not as a flag.
+func expandArgs(args []string) []string {
+	expanded := slices.Clone(args)
+	for i, arg := range expanded {
+		if arg == "--" {
+			break
+		}
+		if arg == "-0" {
+			expanded[i] = "--null"
+		}
+	}
+	return expanded
 }
 
 func newApp() *cli.Command {
@@ -104,7 +120,7 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "show-all", Aliases: []string{"a"}, Usage: "Traverse also files in added/removed directories"},
 			&cli.BoolFlag{Name: "tree", Aliases: []string{"t"}, Usage: "Print side-by-side tree view of differences"},
 			&cli.BoolFlag{Name: "json", Usage: "Print the result as one JSON document"},
-			&cli.BoolFlag{Name: "null", Aliases: []string{"z"}, Usage: "Print each status and path terminated by NUL"},
+			&cli.BoolFlag{Name: "null", Aliases: []string{"z"}, Usage: "Print each status and path terminated by NUL (also -0)"},
 			// remote
 			&cli.StringSliceFlag{Name: "remote-bin", Aliases: []string{"r"}, Usage: "Path to dirdiff binary on remote host."},
 			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on all remote hosts"},

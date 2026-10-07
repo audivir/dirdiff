@@ -116,7 +116,7 @@ func runApp(t *testing.T, args ...string) (string, string, error) {
 	app := newApp()
 	app.Writer = &outBuf
 	app.ErrWriter = &errBuf
-	err := app.Run(context.Background(), append([]string{"dirdiff", "--no-color", "--no-progressbar"}, args...))
+	err := app.Run(context.Background(), expandArgs(append([]string{"dirdiff", "--no-color", "--no-progressbar"}, args...)))
 	return outBuf.String(), errBuf.String(), err
 }
 
@@ -938,7 +938,7 @@ func TestNullOutput(t *testing.T) {
 	}
 	createFile(t, filepath.Join(dirB, newName), "x")
 
-	out, _, err := runApp(t, "-z", "--flat", dirA, dirB)
+	out, _, err := runApp(t, "-0", "--flat", dirA, dirB)
 
 	want := "+\x00" + newName + "\x00~\x00one/mod file\x00two/mod file\x00"
 	if !errors.Is(err, ErrDiffsFound) || out != want {
