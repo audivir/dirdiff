@@ -88,7 +88,8 @@ func setupFakeRemote(t *testing.T, agent string) string {
 	case "old":
 		write(BIN_NAME, "#!/bin/sh\nDIRDIFF_TEST_OLD_AGENT=1 exec "+shellQuote(exe)+" \"$@\"\n")
 	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// a minimal PATH keeps an installed dirdiff out of the fake remote.
+	t.Setenv("PATH", binDir+":/usr/bin:/bin")
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	return binDir
 }
@@ -672,7 +673,7 @@ func TestFollowSymlinksComparesBrokenLinksAsLinks(t *testing.T) {
 func TestRemoteAgentWithoutSh(t *testing.T) {
 	binDir := setupFakeRemote(t, "current")
 	// a host whose shell cannot run sh, like cmd.exe on Windows.
-	script := "#!/bin/sh\nshift\ncase \"$*\" in \"sh -c \"*) echo \"'sh' is not recognized\" >&2; exit 1;; esac\nexec sh -c \"$*\"\n"
+	script := "#!/bin/sh\n[ \"$1\" = -M ] && exit 1\nshift\ncase \"$*\" in \"sh -c \"*) echo \"'sh' is not recognized\" >&2; exit 1;; esac\nexec sh -c \"$*\"\n"
 	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
