@@ -96,7 +96,7 @@ func newApp() *cli.Command {
 func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 	args := cmd.Args().Slice()
 	if len(args) != 2 {
-		return &ParsedArgs{}, fmt.Errorf("too few arguments")
+		return &ParsedArgs{}, fmt.Errorf("expected 2 paths, got %d", len(args))
 	}
 
 	if cmd.Bool("no-color") {
