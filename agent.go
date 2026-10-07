@@ -23,20 +23,14 @@ const (
 
 var (
 	errAgentMissing = errors.New("no dirdiff agent found")
-	releaseVersion  = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+	// errSSHFailed marks a failure of ssh itself, which exits with 255.
+	errSSHFailed   = errors.New("ssh failed")
+	releaseVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 )
 
 // shellQuote quotes s as a single word for POSIX shells.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// remoteBinExpr quotes a user-supplied agent path for the remote shell, keeping a leading ~/.
-func remoteBinExpr(bin string) string {
-	if rest, ok := strings.CutPrefix(bin, "~/"); ok {
-		return `"$HOME"/` + shellQuote(rest)
-	}
-	return shellQuote(bin)
 }
 
 // remoteCacheExpr returns the shell expression for the agent directory in the remote cache.
@@ -143,7 +137,7 @@ func installAgent(ctx context.Context, host, key string, notify io.Writer) error
 	unameCmd.Stderr = os.Stderr
 	uname, err := unameCmd.Output()
 	if err != nil {
-		return fmt.Errorf("detecting platform: %w", err)
+		return fmt.Errorf("installing needs sh and uname on the remote host; install dirdiff there or pass --remote-bin: %w", err)
 	}
 	goos, goarch, err := goTarget(string(uname))
 	if err != nil {

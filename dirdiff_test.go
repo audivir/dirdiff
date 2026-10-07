@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,9 +41,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// setupFakeRemote puts a fake ssh on PATH that runs the remote command locally.
-// The agent on the remote PATH is either missing (""), "current", or "old".
-func setupFakeRemote(t *testing.T, agent string) {
+// setupFakeRemote puts a fake ssh on PATH that runs the remote command locally, and returns
+// its directory. The agent on the remote PATH is either missing (""), "current", or "old".
+func setupFakeRemote(t *testing.T, agent string) string {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake ssh is a shell script")
+	}
 	binDir := t.TempDir()
 	write := func(name, script string) {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0755); err != nil {
@@ -62,6 +66,7 @@ func setupFakeRemote(t *testing.T, agent string) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	return binDir
 }
 
 // runApp runs dirdiff with args and returns its stdout, stderr, and error.
@@ -364,8 +369,8 @@ func TestInvalidRootIsError(t *testing.T) {
 }
 
 func TestUnreadablePathsAreErrors(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permissions are not enforced for root")
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permissions are not enforced")
 	}
 	root := t.TempDir()
 	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
@@ -536,6 +541,9 @@ func TestSymlinkDiffersFromFileWithTargetContent(t *testing.T) {
 }
 
 func TestRemoteStartupErrorIncludesStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake ssh is a shell script")
+	}
 	// a fake ssh that fails like an unreachable host.
 	binDir := t.TempDir()
 	script := "#!/bin/sh\necho 'ssh: connect to host h port 22: Connection refused' >&2\nexit 255\n"
@@ -634,5 +642,22 @@ func TestFollowSymlinksComparesBrokenLinksAsLinks(t *testing.T) {
 
 	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(out) != "~ other" {
 		t.Errorf("expected only other to differ, got %v:\n%s%s", err, out, errOut)
+	}
+}
+
+func TestRemoteAgentWithoutSh(t *testing.T) {
+	binDir := setupFakeRemote(t, "current")
+	// a host whose shell cannot run sh, like cmd.exe on Windows.
+	script := "#!/bin/sh\nshift\ncase \"$*\" in \"sh -c \"*) echo \"'sh' is not recognized\" >&2; exit 1;; esac\nexec sh -c \"$*\"\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	createFile(t, filepath.Join(dir, "f"), "1")
+
+	_, errOut, err := runApp(t, "host:"+dir, dir)
+
+	if err != nil {
+		t.Errorf("expected identical, got %v:\n%s", err, errOut)
 	}
 }

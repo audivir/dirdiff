@@ -117,7 +117,8 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	}
 
 	if agentBin != "" {
-		node, reply, err := startAgent(ctx, host, root, "exec "+sudo+remoteBinExpr(agentBin)+" --agent", promptMarker)
+		// run directly instead of through sh, so hosts with other shells such as cmd.exe work.
+		node, reply, err := startAgent(ctx, host, root, sudo+agentBin+" --agent", promptMarker)
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +136,11 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	cached := remoteCacheExpr(key) + "/" + BIN_NAME
 	script := "b=" + cached + `; [ -x "$b" ] || b=$(command -v ` + BIN_NAME + ") || { echo " + MISSING_MSG +
 		`; exit 0; }; exec ` + sudo + `"$b" --agent`
-	node, reply, err := startAgent(ctx, host, root, script, promptMarker)
+	node, reply, err := startAgent(ctx, host, root, "sh -c "+shellQuote(script), promptMarker)
+	if err != nil && !errors.Is(err, errAgentMissing) && !errors.Is(err, errSSHFailed) {
+		// hosts without sh, such as Windows, can still run an agent on PATH.
+		node, reply, err = startAgent(ctx, host, root, sudo+BIN_NAME+" --agent", promptMarker)
+	}
 	switch {
 	case err == nil && checkProtocol(reply, BIN_NAME, host) == nil:
 		return node, nil
@@ -148,7 +153,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	if err := installAgent(ctx, host, key, notify); err != nil {
 		return nil, fmt.Errorf("installing agent on %s: %w", host, err)
 	}
-	node, reply, err = startAgent(ctx, host, root, "exec "+sudo+cached+" --agent", promptMarker)
+	node, reply, err = startAgent(ctx, host, root, "sh -c "+shellQuote("exec "+sudo+cached+" --agent"), promptMarker)
 	if err != nil {
 		return nil, err
 	}
@@ -172,12 +177,12 @@ func checkProtocol(reply *PingReply, agentBin, host string) error {
 		agentBin, host, agentVersion, reply.Protocol, version, PROTOCOL_VERSION)
 }
 
-// startAgent runs script through sh on host and connects to the agent it starts.
+// startAgent runs remoteCmd on host and connects to the agent it starts.
 // If sudo is required, user input is forwarded as the prompt is intercepted from stderr.
 // The start is successful when the agent prints its ready message and answers a ping.
-func startAgent(ctx context.Context, host, root, script, promptMarker string) (*RemoteNode, *PingReply, error) {
+func startAgent(ctx context.Context, host, root, remoteCmd, promptMarker string) (*RemoteNode, *PingReply, error) {
 	// SSH can prompt the user for passwords/2FA via TTY
-	cmd := exec.CommandContext(ctx, "ssh", host, "sh -c "+shellQuote(script))
+	cmd := exec.CommandContext(ctx, "ssh", host, remoteCmd)
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -256,10 +261,13 @@ func startAgent(ctx context.Context, host, root, script, promptMarker string) (*
 		if err != nil {
 			// all pipe reads must finish before Wait, and stderrBuf is complete only then.
 			waitStderr(stderrDone)
-			_ = cmd.Wait()
+			var exitErr *exec.ExitError
+			if errors.As(cmd.Wait(), &exitErr) && exitErr.ExitCode() == 255 {
+				err = fmt.Errorf("%w: %w", errSSHFailed, err)
+			}
 			errMsg := strings.TrimSpace(stderrBuf.String())
 			if errMsg != "" && !errors.Is(err, errAgentMissing) {
-				return nil, nil, fmt.Errorf("remote agent failed to start: %s | %v", errMsg, err)
+				return nil, nil, fmt.Errorf("remote agent failed to start: %s | %w", errMsg, err)
 			}
 			return nil, nil, err
 		}
