@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,10 +18,12 @@ import (
 
 const (
 	MISSING_MSG = "__DIRDIFF_AGENT_MISSING__"
-	RELEASE_URL = "https://github.com/audivir/dirdiff/releases/download"
 )
 
 var (
+	// releaseURL is the base URL of the release assets.
+	releaseURL = "https://github.com/audivir/dirdiff/releases/download"
+
 	errAgentMissing = errors.New("no dirdiff agent found")
 	// errSSHFailed marks a failure of ssh itself, which exits with 255.
 	errSSHFailed   = errors.New("ssh failed")
@@ -90,7 +93,8 @@ func localAgentBinary(ctx context.Context, goos, goarch string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(cacheDir, BIN_NAME, version, goos+"-"+goarch, BIN_NAME)
+	versionsDir := filepath.Join(cacheDir, BIN_NAME)
+	path := filepath.Join(versionsDir, version, goos+"-"+goarch, BIN_NAME)
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
@@ -98,36 +102,86 @@ func localAgentBinary(ctx context.Context, goos, goarch string) (string, error) 
 		return "", err
 	}
 
-	url := RELEASE_URL + "/" + version + "/" + BIN_NAME + "-" + goos + "-" + goarch
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	asset := BIN_NAME + "-" + goos + "-" + goarch
+	sums, err := download(ctx, version+"/SHA256SUMS")
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	defer func() { _ = sums.Close() }()
+	wantSum, err := checksumFor(sums, asset)
 	if err != nil {
 		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("downloading %s: %s", url, resp.Status)
 	}
 
+	body, err := download(ctx, version+"/"+asset)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = body.Close() }()
 	tmp, err := os.CreateTemp(filepath.Dir(path), BIN_NAME+".*")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), body); err != nil {
 		_ = tmp.Close()
-		return "", fmt.Errorf("downloading %s: %w", url, err)
+		return "", fmt.Errorf("downloading %s: %w", asset, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
+	if gotSum := hex.EncodeToString(h.Sum(nil)); gotSum != wantSum {
+		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", asset, gotSum, wantSum)
+	}
 	if err := os.Chmod(tmp.Name(), 0755); err != nil {
 		return "", err
 	}
-	return path, os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+
+	// remove downloads of other versions.
+	entries, _ := os.ReadDir(versionsDir)
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != version && releaseVersion.MatchString(e.Name()) {
+			_ = os.RemoveAll(filepath.Join(versionsDir, e.Name()))
+		}
+	}
+	return path, nil
+}
+
+// download requests name below the release URL and returns the response body.
+func download(ctx context.Context, name string) (io.ReadCloser, error) {
+	url := releaseURL + "/" + name
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("downloading %s: %s", url, resp.Status)
+	}
+	return resp.Body, nil
+}
+
+// checksumFor returns the SHA256 of asset from a sha256sum listing.
+func checksumFor(sums io.Reader, asset string) (string, error) {
+	scanner := bufio.NewScanner(sums)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {
+			return fields[0], nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no checksum for %s in SHA256SUMS", asset)
 }
 
 // installAgent uploads a dirdiff binary matching the remote platform into the remote cache.

@@ -66,6 +66,8 @@ jobs:
           pattern: binary-*
           path: dist
           merge-multiple: true
+      - name: Write checksums
+        run: cd dist && sha256sum dirdiff-* > SHA256SUMS
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:

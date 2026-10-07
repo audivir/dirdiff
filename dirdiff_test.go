@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/rpc"
 	"os"
 	"path/filepath"
@@ -741,6 +745,65 @@ func TestRemoteNoInstall(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(os.Getenv("XDG_CACHE_HOME"), BIN_NAME)); !os.IsNotExist(err) {
 				t.Errorf("expected empty remote cache, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestDownloadAgent(t *testing.T) {
+	binary := []byte("linux agent")
+	sum := sha256.Sum256(binary)
+	for name, served := range map[string][]byte{"valid": binary, "tampered": []byte("evil agent")} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v9.9.9/SHA256SUMS":
+					_, _ = fmt.Fprintf(w, "%s  dirdiff-plan9-amd64\n", hex.EncodeToString(sum[:]))
+				case "/v9.9.9/dirdiff-plan9-amd64":
+					_, _ = w.Write(served)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			oldURL, oldVersion := releaseURL, version
+			releaseURL, version = server.URL, "v9.9.9"
+			defer func() { releaseURL, version = oldURL, oldVersion }()
+			for _, env := range []string{"HOME", "XDG_CACHE_HOME", "LocalAppData"} {
+				t.Setenv(env, t.TempDir())
+			}
+			cacheDir, err := os.UserCacheDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			versionsDir := filepath.Join(cacheDir, BIN_NAME)
+			createFile(t, filepath.Join(versionsDir, "v0.0.1", "linux-amd64", BIN_NAME), "old")
+			createFile(t, filepath.Join(versionsDir, "notes"), "keep")
+
+			path, err := localAgentBinary(context.Background(), "plan9", "amd64")
+
+			if name == "tampered" {
+				if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+					t.Errorf("expected checksum mismatch, got: %v", err)
+				}
+				if _, err := os.Stat(filepath.Join(versionsDir, "v9.9.9", "plan9-amd64", BIN_NAME)); !os.IsNotExist(err) {
+					t.Errorf("expected no cached agent, got: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if data, _ := os.ReadFile(path); !bytes.Equal(data, binary) {
+				t.Errorf("expected downloaded agent, got %q", data)
+			}
+			entries, _ := os.ReadDir(versionsDir)
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			if !slices.Equal(names, []string{"notes", "v9.9.9"}) {
+				t.Errorf("expected old version removed, got %v", names)
 			}
 		})
 	}
