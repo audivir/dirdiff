@@ -81,7 +81,7 @@ func newApp() *cli.Command {
 			&cli.StringFlag{Name: "global-limit", Aliases: []string{"g"}, Usage: "Size limit for all SHA256 hashes (default 0 = no limit)", HideDefault: true, Value: "0"},
 			// verbosity
 			&cli.BoolFlag{Name: "quiet", Aliases: []string{"q"}, Usage: "Disable all output except exit code"},
-			&cli.BoolFlag{Name: "verbose", Aliases: []string{"V"}, Usage: "Print debug info"},
+			&cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "Print debug info"},
 			&cli.BoolFlag{Name: "no-progressbar", Aliases: []string{"P"}, Usage: "Disable progress bar"},
 			&cli.BoolFlag{Name: "no-color", Aliases: []string{"C"}, Usage: "Disable color output"},
 			&cli.BoolFlag{Name: "show-all", Aliases: []string{"a"}, Usage: "Traverse also files in added/removed directories"},

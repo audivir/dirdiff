@@ -37,7 +37,7 @@ Common options:
   `-l, --fast-limit` and `-g, --global-limit` to control the size limits used.
 - `-t, --tree`: print a side-by-side tree view of the differences.
 - `-a, --show-all`: also traverse files inside added or removed directories.
-- `-q, --quiet`, `-V, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
+- `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
   output verbosity and styling.
 - `-r, --remote-bin`: path to the remote agent binary, once for all hosts or once per host.
 - `-s, --sudo`, `--sudo-a`, `--sudo-b`: escalate privileges via sudo on all remote hosts,

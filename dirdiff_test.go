@@ -114,7 +114,7 @@ func TestDirDiff(t *testing.T) {
 		},
 		{
 			name:          "Same Directory Optimization (Code 0)",
-			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "--verbose", baseDir, baseDir},
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "-v", baseDir, baseDir},
 			expectedError: nil,
 			shouldContain: []string{"identical (same path: "},
 		},
