@@ -204,3 +204,29 @@ func TestDirDiff(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSudo(t *testing.T) {
+	tests := []struct {
+		name                 string
+		isRemoteA, isRemoteB bool
+		sudo, sudoA, sudoB   bool
+		wantA, wantB         bool
+		wantErr              bool
+	}{
+		{name: "sudo skips local side", isRemoteB: true, sudo: true, wantB: true},
+		{name: "sudo covers both remotes", isRemoteA: true, isRemoteB: true, sudo: true, wantA: true, wantB: true},
+		{name: "sudo-b only", isRemoteA: true, isRemoteB: true, sudoB: true, wantB: true},
+		{name: "sudo-a on local path", isRemoteB: true, sudoA: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotA, gotB, err := resolveSudo(tt.isRemoteA, tt.isRemoteB, tt.sudo, tt.sudoA, tt.sudoB)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("unexpected error state: %v", err)
+			}
+			if gotA != tt.wantA || gotB != tt.wantB {
+				t.Errorf("got (%v, %v), want (%v, %v)", gotA, gotB, tt.wantA, tt.wantB)
+			}
+		})
+	}
+}

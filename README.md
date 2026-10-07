@@ -39,8 +39,9 @@ Common options:
 - `-a, --show-all`: also traverse files inside added or removed directories.
 - `-q, --quiet`, `-V, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
   output verbosity and styling.
-- `-r, --remote-bin`, `-s, --sudo`, `-n, --no-sudo`: configure the remote agent
-  binary path and privilege escalation per host.
+- `-r, --remote-bin`: path to the remote agent binary, once for all hosts or once per host.
+- `-s, --sudo`, `--sudo-a`, `--sudo-b`: escalate privileges via sudo on all remote hosts,
+  or only on host A or host B.
 
 Run `dirdiff --help` for the full list of options.
 

@@ -20,6 +20,18 @@ func isRemotePath(p string) bool {
 	return strings.Contains(p, ":") && !filepath.IsAbs(p)
 }
 
+// resolveSudo returns whether sudo is used for side A and side B.
+// The sudo flag applies to every remote side, and a per-side flag on a local path is an error.
+func resolveSudo(isRemoteA, isRemoteB, sudo, sudoA, sudoB bool) (bool, bool, error) {
+	if sudoA && !isRemoteA {
+		return false, false, fmt.Errorf("--sudo-a requires a remote path A")
+	}
+	if sudoB && !isRemoteB {
+		return false, false, fmt.Errorf("--sudo-b requires a remote path B")
+	}
+	return isRemoteA && (sudo || sudoA), isRemoteB && (sudo || sudoB), nil
+}
+
 type ParsedArgs struct {
 	PathA, PathB         string
 	AgentBinA, AgentBinB string
@@ -76,8 +88,9 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "tree", Aliases: []string{"t"}, Usage: "Print side-by-side tree view of differences"},
 			// remote
 			&cli.StringSliceFlag{Name: "remote-bin", Aliases: []string{"r"}, Usage: "Path to dirdiff binary on remote host."},
-			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on remote host(s)"},
-			&cli.BoolFlag{Name: "no-sudo", Aliases: []string{"n"}, Usage: "Explicitly disable sudo for a remote host"},
+			&cli.BoolFlag{Name: "sudo", Aliases: []string{"s"}, Usage: "Escalate privileges via sudo on all remote hosts"},
+			&cli.BoolFlag{Name: "sudo-a", Usage: "Escalate privileges via sudo on remote host A"},
+			&cli.BoolFlag{Name: "sudo-b", Usage: "Escalate privileges via sudo on remote host B"},
 			&cli.BoolFlag{Name: "agent", Hidden: true, Usage: "Run as RPC agent over stdin/stdout"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -122,36 +135,9 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		return &ParsedArgs{}, fmt.Errorf("too many --remote-bin arguments")
 	}
 
-	// parse sudo flags based on position in os.Args
-	var sudoFlags []bool
-	for _, arg := range os.Args {
-		switch arg {
-		case "--sudo":
-			sudoFlags = append(sudoFlags, true)
-		case "--no-sudo":
-			sudoFlags = append(sudoFlags, false)
-		}
-	}
-
-	sudoA, sudoB := false, false
-	if len(sudoFlags) == 1 {
-		if isRemoteA {
-			sudoA = sudoFlags[0]
-		}
-		if isRemoteB {
-			sudoB = sudoFlags[0]
-		}
-	} else if len(sudoFlags) == 2 {
-		idx := 0
-		if isRemoteA {
-			sudoA = sudoFlags[idx]
-			idx++
-		}
-		if isRemoteB && idx < len(sudoFlags) {
-			sudoB = sudoFlags[idx]
-		}
-	} else if len(sudoFlags) > 2 {
-		return &ParsedArgs{}, fmt.Errorf("too many --sudo or --no-sudo flags")
+	sudoA, sudoB, err := resolveSudo(isRemoteA, isRemoteB, cmd.Bool("sudo"), cmd.Bool("sudo-a"), cmd.Bool("sudo-b"))
+	if err != nil {
+		return &ParsedArgs{}, err
 	}
 
 	fastLimit, err := units.RAMInBytes(cmd.String("fast-limit"))
