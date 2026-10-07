@@ -44,6 +44,8 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          # static binaries also run as remote agents on musl or older glibc hosts.
+          CGO_ENABLED: "0"
         run: |
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
