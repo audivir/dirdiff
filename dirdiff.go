@@ -67,8 +67,12 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 
 func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	if !isRemotePath(args.PathA) && !isRemotePath(args.PathB) {
-		absA, errA := filepath.Abs(args.PathA)
-		absB, errB := filepath.Abs(args.PathB)
+		absA, errA := filepath.EvalSymlinks(args.PathA)
+		absB, errB := filepath.EvalSymlinks(args.PathB)
+		if errA == nil && errB == nil {
+			absA, errA = filepath.Abs(absA)
+			absB, errB = filepath.Abs(absB)
+		}
 		if errA == nil && errB == nil && absA == absB {
 			if args.Verbose {
 				green := color.New(color.FgGreen).FprintfFunc()

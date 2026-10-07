@@ -97,6 +97,10 @@ func TestDirDiff(t *testing.T) {
 	subsetDir := filepath.Join(root, "test_subset")
 	fastADir := filepath.Join(root, "test_fast_A")
 	fastBDir := filepath.Join(root, "test_fast_B")
+	baseLink := filepath.Join(root, "test_base_link")
+	if err := os.Symlink(baseDir, baseLink); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
 
 	tests := []struct {
 		name          string
@@ -115,6 +119,12 @@ func TestDirDiff(t *testing.T) {
 		{
 			name:          "Same Directory Optimization (Code 0)",
 			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "-v", baseDir, baseDir},
+			expectedError: nil,
+			shouldContain: []string{"identical (same path: "},
+		},
+		{
+			name:          "Same Directory via Symlink (Code 0)",
+			args:          []string{"dirdiff", "--no-color", "--no-progressbar", "-v", baseLink, baseDir},
 			expectedError: nil,
 			shouldContain: []string{"identical (same path: "},
 		},
