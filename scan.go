@@ -8,7 +8,11 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sync"
 )
+
+// WALKERS bounds the directories walked in parallel.
+const WALKERS = 8
 
 // coreScan scans a directory tree and returns a map of relative file names
 // to file sizes, the list of directories, and the paths that could not be read.
@@ -41,10 +45,14 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 	}
 
 	// real paths of the directories being walked, used to detect symlink loops.
-	ancestors := make(map[string]bool)
+	// directories are walked in parallel when a slot is free, and inline otherwise.
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, WALKERS)
 
-	var walk func(currPath string) error
-	walk = func(currPath string) error {
+	// ancestors holds the real paths of the parent directories, used to detect symlink loops.
+	var walk func(currPath string, ancestors []string) error
+	walk = func(currPath string, ancestors []string) error {
 		rel, err := filepath.Rel(rootDir, currPath)
 		if err != nil || rel == "." {
 			rel = ""
@@ -65,7 +73,9 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 			if slashRel == "" {
 				return err
 			}
+			mu.Lock()
 			failed[slashRel] = err.Error()
+			mu.Unlock()
 			return nil
 		}
 
@@ -91,7 +101,9 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 
 		if info.IsDir() {
 			if slashRel != "" {
+				mu.Lock()
 				dirs = append(dirs, slashRel)
+				mu.Unlock()
 			}
 			if followSym {
 				if realPath == "" {
@@ -101,18 +113,29 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 					}
 				}
 				// a symlink loop is listed as a directory but not descended into.
-				if ancestors[realPath] {
+				if slices.Contains(ancestors, realPath) {
 					return nil
 				}
-				ancestors[realPath] = true
-				defer delete(ancestors, realPath)
+				ancestors = append(ancestors[:len(ancestors):len(ancestors)], realPath)
 			}
 			entries, err := os.ReadDir(currPath)
 			if err != nil {
 				return fail(err)
 			}
 			for _, e := range entries {
-				_ = walk(filepath.Join(currPath, e.Name()))
+				child := filepath.Join(currPath, e.Name())
+				if e.IsDir() || e.Type()&fs.ModeSymlink != 0 {
+					select {
+					case slots <- struct{}{}:
+						wg.Go(func() {
+							defer func() { <-slots }()
+							_ = walk(child, ancestors)
+						})
+						continue
+					default:
+					}
+				}
+				_ = walk(child, ancestors)
 			}
 			return nil
 		}
@@ -130,12 +153,16 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 					return nil
 				}
 			}
+			mu.Lock()
 			files[slashRel] = info.Size()
+			mu.Unlock()
 		}
 		return nil
 	}
 
-	if err := walk(rootDir); err != nil {
+	err = walk(rootDir, nil)
+	wg.Wait()
+	if err != nil {
 		return nil, nil, nil, err
 	}
 	if len(incGlobs) > 0 {
