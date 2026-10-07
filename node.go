@@ -59,14 +59,18 @@ type DirNode interface {
 
 // createNode creates a LocalNode or RemoteNode depending on the path string.
 // For remote paths, it creates a RemoteNode using the provided agent binary and sudo flag.
-func createNode(ctx context.Context, pathStr, agentBin string, useSudo, verbose bool, notify io.Writer) (DirNode, string, error) {
+func createNode(ctx context.Context, pathStr, agentBin string, useSudo, verbose bool, notify io.Writer, conns sshConns) (DirNode, string, error) {
 	if strings.Contains(pathStr, ":") && !filepath.IsAbs(pathStr) {
 		parts := strings.SplitN(pathStr, ":", 2)
 		host, rPath := parts[0], parts[1]
 		if verbose {
 			fmt.Fprintf(os.Stderr, "Connecting to %s via SSH...\n", host)
 		}
-		node, err := NewRemoteNode(ctx, host, rPath, agentBin, useSudo, notify)
+		conn, err := conns.get(ctx, host)
+		if err != nil {
+			return nil, rPath, err
+		}
+		node, err := NewRemoteNode(ctx, conn, rPath, agentBin, useSudo, notify)
 		return node, rPath, err
 	}
 	absPath, err := filepath.Abs(pathStr)
@@ -108,7 +112,8 @@ type RemoteNode struct {
 // NewRemoteNode creates a new RemoteNode instance.
 // Without agentBin, it uses the agent in the remote cache or on PATH, and installs a matching
 // agent into the remote cache if neither exists or speaks this protocol version.
-func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo bool, notify io.Writer) (*RemoteNode, error) {
+func NewRemoteNode(ctx context.Context, conn *sshConn, root, agentBin string, useSudo bool, notify io.Writer) (*RemoteNode, error) {
+	host := conn.host
 	// format the prompt so we can intercept it from stderr
 	promptMarker := fmt.Sprintf("[sudo] password for %s on %s: ", BIN_NAME, host)
 	sudo := ""
@@ -118,7 +123,7 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 
 	if agentBin != "" {
 		// run directly instead of through sh, so hosts with other shells such as cmd.exe work.
-		node, reply, err := startAgent(ctx, host, root, sudo+agentBin+" --agent", promptMarker)
+		node, reply, err := startAgent(ctx, conn, root, sudo+agentBin+" --agent", promptMarker)
 		if err != nil {
 			return nil, err
 		}
@@ -136,10 +141,10 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	cached := remoteCacheExpr(key) + "/" + BIN_NAME
 	script := "b=" + cached + `; [ -x "$b" ] || b=$(command -v ` + BIN_NAME + ") || { echo " + MISSING_MSG +
 		`; exit 0; }; exec ` + sudo + `"$b" --agent`
-	node, reply, err := startAgent(ctx, host, root, "sh -c "+shellQuote(script), promptMarker)
+	node, reply, err := startAgent(ctx, conn, root, "sh -c "+shellQuote(script), promptMarker)
 	if err != nil && !errors.Is(err, errAgentMissing) && !errors.Is(err, errSSHFailed) {
 		// hosts without sh, such as Windows, can still run an agent on PATH.
-		node, reply, err = startAgent(ctx, host, root, sudo+BIN_NAME+" --agent", promptMarker)
+		node, reply, err = startAgent(ctx, conn, root, sudo+BIN_NAME+" --agent", promptMarker)
 	}
 	switch {
 	case err == nil && checkProtocol(reply, BIN_NAME, host) == nil:
@@ -150,10 +155,10 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 		return nil, err
 	}
 
-	if err := installAgent(ctx, host, key, notify); err != nil {
+	if err := installAgent(ctx, conn, key, notify); err != nil {
 		return nil, fmt.Errorf("installing agent on %s: %w", host, err)
 	}
-	node, reply, err = startAgent(ctx, host, root, "sh -c "+shellQuote("exec "+sudo+cached+" --agent"), promptMarker)
+	node, reply, err = startAgent(ctx, conn, root, "sh -c "+shellQuote("exec "+sudo+cached+" --agent"), promptMarker)
 	if err != nil {
 		return nil, err
 	}
@@ -180,9 +185,9 @@ func checkProtocol(reply *PingReply, agentBin, host string) error {
 // startAgent runs remoteCmd on host and connects to the agent it starts.
 // If sudo is required, user input is forwarded as the prompt is intercepted from stderr.
 // The start is successful when the agent prints its ready message and answers a ping.
-func startAgent(ctx context.Context, host, root, remoteCmd, promptMarker string) (*RemoteNode, *PingReply, error) {
+func startAgent(ctx context.Context, conn *sshConn, root, remoteCmd, promptMarker string) (*RemoteNode, *PingReply, error) {
 	// SSH can prompt the user for passwords/2FA via TTY
-	cmd := exec.CommandContext(ctx, "ssh", host, remoteCmd)
+	cmd := conn.command(ctx, remoteCmd)
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -276,13 +281,13 @@ func startAgent(ctx context.Context, host, root, remoteCmd, promptMarker string)
 	}
 
 	// hand over the rest of the clean stream to the RPC Client
-	conn := struct {
+	stream := struct {
 		io.Reader
 		io.Writer
 		io.Closer
 	}{stdoutReader, stdinPipe, stdinPipe}
 
-	client := rpc.NewClient(conn)
+	client := rpc.NewClient(stream)
 
 	node := &RemoteNode{cmd: cmd, client: client, root: root, stderrDone: stderrDone}
 	reply := &PingReply{}

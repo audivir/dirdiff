@@ -24,6 +24,8 @@ dirdiff [options] <pathA|hostA:/pathA> <pathB|hostB:/pathB>
 ```
 
 Either path can be local, or `host:/path` for a remote directory reached over SSH.
+All SSH commands to a host share one connection, so authentication happens once per host
+(except on Windows, whose SSH client does not support connection sharing).
 
 Common options:
 

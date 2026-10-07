@@ -41,6 +41,30 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// FAKE_SSH runs the remote command locally and supports a master connection through -M, -S,
+// and -O. It logs each call to $FAKE_SSH_LOG if set.
+const FAKE_SSH = `#!/bin/sh
+S=; O=; M=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-S) S=$2; shift 2;;
+		-O) O=$2; shift 2;;
+		-o) shift 2;;
+		-M) M=1; shift;;
+		-N) shift;;
+		*) break;;
+	esac
+done
+shift
+[ -n "$FAKE_SSH_LOG" ] && echo "master=$M socket=${S:+yes} op=$O" >> "$FAKE_SSH_LOG"
+case "$O" in
+	check) [ -f "$S.pid" ]; exit $?;;
+	exit) kill "$(cat "$S.pid")"; rm -f "$S.pid"; exit 0;;
+esac
+if [ -n "$M" ]; then echo $$ > "$S.pid"; exec sleep 600; fi
+exec sh -c "$*"
+`
+
 // setupFakeRemote puts a fake ssh on PATH that runs the remote command locally, and returns
 // its directory. The agent on the remote PATH is either missing (""), "current", or "old".
 func setupFakeRemote(t *testing.T, agent string) string {
@@ -53,7 +77,7 @@ func setupFakeRemote(t *testing.T, agent string) string {
 			t.Fatal(err)
 		}
 	}
-	write("ssh", "#!/bin/sh\nshift\nexec sh -c \"$*\"\n")
+	write("ssh", FAKE_SSH)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -659,5 +683,27 @@ func TestRemoteAgentWithoutSh(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("expected identical, got %v:\n%s", err, errOut)
+	}
+}
+
+func TestRemoteSharesOneConnectionPerHost(t *testing.T) {
+	setupFakeRemote(t, "")
+	logFile := filepath.Join(t.TempDir(), "ssh.log")
+	t.Setenv("FAKE_SSH_LOG", logFile)
+	dirA, dirB := t.TempDir(), t.TempDir()
+
+	// the agent is missing, so this also covers the install commands.
+	_, errOut, err := runApp(t, "host:"+dirA, "host:"+dirB)
+	if err != nil {
+		t.Fatalf("expected identical, got %v:\n%s", err, errOut)
+	}
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(data)
+	if strings.Count(log, "master=1") != 1 || strings.Contains(log, "socket= ") || !strings.Contains(log, "op=exit") {
+		t.Errorf("expected one master used by all calls and closed at the end, got:\n%s", log)
 	}
 }

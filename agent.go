@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -132,8 +131,8 @@ func localAgentBinary(ctx context.Context, goos, goarch string) (string, error) 
 }
 
 // installAgent uploads a dirdiff binary matching the remote platform into the remote cache.
-func installAgent(ctx context.Context, host, key string, notify io.Writer) error {
-	unameCmd := exec.CommandContext(ctx, "ssh", host, "uname -sm")
+func installAgent(ctx context.Context, conn *sshConn, key string, notify io.Writer) error {
+	unameCmd := conn.command(ctx, "uname -sm")
 	unameCmd.Stderr = os.Stderr
 	uname, err := unameCmd.Output()
 	if err != nil {
@@ -153,12 +152,12 @@ func installAgent(ctx context.Context, host, key string, notify io.Writer) error
 	}
 	defer func() { _ = f.Close() }()
 
-	_, _ = fmt.Fprintf(notify, "Installing %s %s (%s/%s) on %s\n", BIN_NAME, version, goos, goarch, host)
+	_, _ = fmt.Fprintf(notify, "Installing %s %s (%s/%s) on %s\n", BIN_NAME, version, goos, goarch, conn.host)
 	// write to a temporary name first, so a concurrent or interrupted upload never leaves a
 	// partial agent behind.
 	script := `d=` + remoteCacheExpr(key) + ` && mkdir -p "$d" && cat > "$d/.upload.$$" && ` +
 		`chmod 755 "$d/.upload.$$" && mv -f "$d/.upload.$$" "$d/` + BIN_NAME + `"`
-	upload := exec.CommandContext(ctx, "ssh", host, "sh -c "+shellQuote(script))
+	upload := conn.command(ctx, "sh -c "+shellQuote(script))
 	upload.Stdin = f
 	upload.Stderr = os.Stderr
 	if err := upload.Run(); err != nil {
