@@ -469,3 +469,22 @@ func TestSymlinkDiffersFromFileWithTargetContent(t *testing.T) {
 		t.Errorf("expected k to be modified, got %v:\n%s", err, outBuf.String())
 	}
 }
+
+func TestRemoteStartupErrorIncludesStderr(t *testing.T) {
+	// a fake ssh that fails like an unreachable host.
+	binDir := t.TempDir()
+	script := "#!/bin/sh\necho 'ssh: connect to host h port 22: Connection refused' >&2\nexit 255\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	app := newApp()
+	app.Writer = &bytes.Buffer{}
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-progressbar", "h:/x", t.TempDir()})
+
+	if err == nil || !strings.Contains(err.Error(), "Connection refused") {
+		t.Errorf("expected ssh error message, got: %v", err)
+	}
+}

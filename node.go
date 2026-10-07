@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type PingArgs struct{}
@@ -83,9 +84,10 @@ func (n *LocalNode) GetSHA(relPath string, limit int64, followSym bool) (string,
 func (n *LocalNode) Close() error { return nil }
 
 type RemoteNode struct {
-	cmd    *exec.Cmd
-	client *rpc.Client
-	root   string
+	cmd        *exec.Cmd
+	client     *rpc.Client
+	root       string
+	stderrDone chan struct{}
 }
 
 // NewRemoteNode creates a new RemoteNode instance.
@@ -130,9 +132,11 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	}
 
 	var stderrBuf bytes.Buffer
+	stderrDone := make(chan struct{})
 
 	// monitor stderr to echo SSH output and intercept sudo prompts
 	go func() {
+		defer close(stderrDone)
 		buf := make([]byte, 1)
 		var window []byte
 		markerBytes := []byte(promptMarker)
@@ -181,6 +185,8 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	select {
 	case err := <-readyCh:
 		if err != nil {
+			// all pipe reads must finish before Wait, and stderrBuf is complete only then.
+			waitStderr(stderrDone)
 			_ = cmd.Wait()
 			errMsg := strings.TrimSpace(stderrBuf.String())
 			if errMsg != "" {
@@ -207,7 +213,16 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 		return nil, fmt.Errorf("remote agent RPC ping failed: %w", err)
 	}
 
-	return &RemoteNode{cmd: cmd, client: client, root: root}, nil
+	return &RemoteNode{cmd: cmd, client: client, root: root, stderrDone: stderrDone}, nil
+}
+
+// waitStderr waits for the stderr reader to finish, bounded because a persistent ssh
+// control master can keep stderr open after the session ends.
+func waitStderr(done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+	}
 }
 
 func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
@@ -237,5 +252,6 @@ func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string
 }
 func (n *RemoteNode) Close() error {
 	_ = n.client.Close()
+	waitStderr(n.stderrDone)
 	return n.cmd.Wait()
 }
