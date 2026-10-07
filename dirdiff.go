@@ -50,8 +50,6 @@ type DiffItem struct {
 	PathB string
 	Type  ChangeType
 	IsDir bool
-	// Hash is a short content hash that tells apart files with the same name in --flat mode.
-	Hash string
 }
 
 // ReadFailure stores a path that could not be read and the reason.
@@ -79,6 +77,28 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 		d = path.Dir(d)
 	}
 	return false
+}
+
+// flatIndex maps file names to their paths and fails if a name occurs more than once.
+func flatIndex(files map[string]int64, side string) (map[string]string, error) {
+	byName := make(map[string][]string)
+	for p := range files {
+		byName[path.Base(p)] = append(byName[path.Base(p)], p)
+	}
+	var dupes []string
+	index := make(map[string]string, len(byName))
+	for name, paths := range byName {
+		if len(paths) > 1 {
+			slices.Sort(paths)
+			dupes = append(dupes, strings.Join(paths, ", "))
+		}
+		index[name] = paths[0]
+	}
+	if len(dupes) > 0 {
+		slices.Sort(dupes)
+		return nil, fmt.Errorf("--flat requires unique file names, but %s has duplicates: %s", side, strings.Join(dupes, "; "))
+	}
+	return index, nil
 }
 
 // isTerminal reports whether w is a terminal.
@@ -139,24 +159,37 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return err
 	}
 
-	// hashLimit returns the SHA256 size limit for a path, depending on the fast globs.
-	hashLimit := func(p string) int64 {
-		for _, g := range fastGlobs {
-			if g.Match(p) {
-				return args.FastLimit
-			}
-		}
-		return args.GlobalLimit
-	}
-
 	var results []DiffItem
 	var commonJobs []CompareJob
-	var failures []ReadFailure
 
 	showAll := cmd.Bool("show-all")
 
 	if args.Flat {
-		results, commonJobs, failures = flatCompare(ctx, filesA, filesB, nodeA, nodeB, hashLimit, args.FollowSym, int(cmd.Int("workers")))
+		// --- Flat Mode ---
+		flatA, err := flatIndex(filesA, "A")
+		if err != nil {
+			return err
+		}
+		flatB, err := flatIndex(filesB, "B")
+		if err != nil {
+			return err
+		}
+
+		for base, pA := range flatA {
+			if _, ok := flatB[base]; !ok {
+				results = append(results, DiffItem{Path: pA, Type: Removed, IsDir: false})
+			}
+		}
+		for base, pB := range flatB {
+			if _, ok := flatA[base]; !ok {
+				results = append(results, DiffItem{Path: pB, Type: Added, IsDir: false})
+			}
+		}
+		for base, pA := range flatA {
+			if pB, ok := flatB[base]; ok {
+				commonJobs = append(commonJobs, CompareJob{PathA: pA, PathB: pB})
+			}
+		}
 	} else {
 		dirMapA := make(map[string]bool)
 		for _, d := range dirsA {
@@ -213,6 +246,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 
 	// differences at or below an unreadable path are unknown, so they are not reported.
+	var failures []ReadFailure
 	failedPaths := make(map[string]bool)
 	for side, failed := range map[string]map[string]string{"A": failedA, "B": failedB} {
 		for p, msg := range failed {
@@ -310,7 +344,13 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 							return
 						}
 
-						limit := hashLimit(j.PathA)
+						limit := args.GlobalLimit
+						for _, g := range fastGlobs {
+							if g.Match(j.PathA) {
+								limit = args.FastLimit
+								break
+							}
+						}
 
 						start := time.Now()
 						shaA, errA := nodeA.GetSHA(j.PathA, limit, args.FollowSym)

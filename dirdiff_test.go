@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -372,32 +370,24 @@ func TestFollowSymlinks(t *testing.T) {
 	}
 }
 
-func TestFlatPairsDuplicateNamesByHash(t *testing.T) {
+func TestFlatRejectsDuplicateNames(t *testing.T) {
 	root := t.TempDir()
 	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
 	createFile(t, filepath.Join(dirA, "same.txt"), "q")
 	createFile(t, filepath.Join(dirA, "x", "same.txt"), "hi")
 	createFile(t, filepath.Join(dirB, "y", "same.txt"), "q")
-	createFile(t, filepath.Join(dirB, "z", "same.txt"), "new")
-	createFile(t, filepath.Join(dirA, "one", "u"), "1")
-	createFile(t, filepath.Join(dirB, "two", "u"), "2")
 
 	var outBuf bytes.Buffer
 	app := newApp()
 	app.Writer = &outBuf
 	app.ErrWriter = &bytes.Buffer{}
-	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "--flat", dirA, dirB})
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-progressbar", "--flat", dirA, dirB})
 
-	shortHash := func(s string) string {
-		sum := sha256.Sum256([]byte(s))
-		return hex.EncodeToString(sum[:])[:SHORT_HASH_LEN]
+	if err == nil || !strings.Contains(err.Error(), "same.txt, x/same.txt") {
+		t.Errorf("expected duplicate name error, got: %v", err)
 	}
-	// same.txt and y/same.txt pair up by content, so they are not listed.
-	want := "~ one/u (in A) | two/u (in B)\n" +
-		"- x/same.txt [" + shortHash("hi") + "]\n" +
-		"+ z/same.txt [" + shortHash("new") + "]\n"
-	if !errors.Is(err, ErrDiffsFound) || outBuf.String() != want {
-		t.Errorf("got %v:\n%s\nwant:\n%s", err, outBuf.String(), want)
+	if outBuf.Len() != 0 {
+		t.Errorf("expected no output, got:\n%s", outBuf.String())
 	}
 }
 

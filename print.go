@@ -59,9 +59,6 @@ func printAndDetermineExit(results []DiffItem, failures []ReadFailure, cmd *cli.
 				if item.IsDir {
 					suffix = "/"
 				}
-				if item.Hash != "" {
-					suffix = " [" + item.Hash + "]"
-				}
 				switch item.Type {
 				case Added:
 					green(cmd.Writer, "+ %s%s\n", item.Path, suffix)
