@@ -50,7 +50,7 @@ The exit code reports the comparison result:
 
 - `0`: the directories are identical.
 - `1`: differences were found on both sides.
-- `2`: an error occurred.
+- `2`: an error occurred, including paths that could not be read.
 - `3`: directory A is a subset of directory B.
 - `4`: directory B is a subset of directory A.
 - `130`: the comparison was interrupted, and no results were printed.

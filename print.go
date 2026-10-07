@@ -9,9 +9,10 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary bool) error {
+func printAndDetermineExit(results []DiffItem, failures []ReadFailure, cmd *cli.Command, showSummary bool) error {
 	// sort alphabetically
 	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
+	sort.Slice(failures, func(i, j int) bool { return failures[i].Msg < failures[j].Msg })
 
 	red := color.New(color.FgRed).FprintfFunc()
 	green := color.New(color.FgGreen).FprintfFunc()
@@ -75,6 +76,12 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 		}
 	}
 
+	if !cmd.Bool("quiet") {
+		for _, f := range failures {
+			red(cmd.ErrWriter, "error: %s\n", f.Msg)
+		}
+	}
+
 	hasAdded := addedFiles > 0 || addedDirs > 0
 	hasRemoved := removedFiles > 0 || removedDirs > 0
 	hasModified := modifiedFiles > 0
@@ -83,7 +90,7 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 		_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
 	}
 
-	if len(results) == 0 {
+	if len(results) == 0 && len(failures) == 0 {
 		if showSummary {
 			green(cmd.ErrWriter, "Directories are identical.\n")
 		}
@@ -107,6 +114,9 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 		if removedDirs > 0 {
 			parts = append(parts, countNoun(removedDirs, "removed dir"))
 		}
+		if len(failures) > 0 {
+			parts = append(parts, countNoun(len(failures), "unreadable path"))
+		}
 
 		summary := strings.Join(parts, ", ")
 
@@ -118,6 +128,12 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 		cyan(cmd.ErrWriter, "Summary: %s\n", summary)
 	}
 
+	if len(failures) > 0 {
+		if showSummary {
+			red(cmd.ErrWriter, "Comparison is incomplete.\n")
+		}
+		return fmt.Errorf("%s could not be read", countNoun(len(failures), "path"))
+	}
 	if hasModified || (hasAdded && hasRemoved) {
 		if showSummary {
 			red(cmd.ErrWriter, "Directories are divergent.\n")

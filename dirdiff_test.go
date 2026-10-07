@@ -297,3 +297,38 @@ func TestInvalidRootIsError(t *testing.T) {
 		})
 	}
 }
+
+func TestUnreadablePathsAreErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permissions are not enforced for root")
+	}
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "secret"), "s")
+	createFile(t, filepath.Join(dirB, "secret"), "s")
+	createFile(t, filepath.Join(dirA, "locked", "f"), "x")
+	createFile(t, filepath.Join(dirB, "locked", "only-b"), "x")
+	for _, p := range []string{filepath.Join(dirA, "secret"), filepath.Join(dirA, "locked")} {
+		if err := os.Chmod(p, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(p, 0755) })
+	}
+
+	var outBuf, errBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &errBuf
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", dirA, dirB})
+
+	if err == nil || errors.Is(err, ErrDiffsFound) || errors.Is(err, ErrASubsetB) {
+		t.Errorf("expected read error, got: %v", err)
+	}
+	// contents of an unreadable directory are unknown, not added.
+	if outBuf.Len() != 0 {
+		t.Errorf("expected no differences, got:\n%s", outBuf.String())
+	}
+	if strings.Count(errBuf.String(), "error: A: ") != 2 {
+		t.Errorf("expected 2 read errors, got:\n%s", errBuf.String())
+	}
+}

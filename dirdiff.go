@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -50,9 +51,20 @@ type DiffItem struct {
 	IsDir bool
 }
 
+// ReadFailure stores a path that could not be read and the reason.
+type ReadFailure struct {
+	Path string
+	Msg  string
+}
+
 type CompareJob struct {
 	PathA string
 	PathB string
+}
+
+// isAtOrInside reports whether slashPath is in pathSet or inside one of its paths.
+func isAtOrInside(slashPath string, pathSet map[string]bool) bool {
+	return pathSet[slashPath] || isInside(slashPath, pathSet)
 }
 
 func isInside(slashPath string, dirSet map[string]bool) bool {
@@ -112,11 +124,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	filesA, dirsA, err := nodeA.Scan(includes, excludes, args.FollowSym)
+	filesA, dirsA, failedA, err := nodeA.Scan(includes, excludes, args.FollowSym)
 	if err != nil {
 		return fmt.Errorf("scan A error: %w", err)
 	}
-	filesB, dirsB, err := nodeB.Scan(includes, excludes, args.FollowSym)
+	filesB, dirsB, failedB, err := nodeB.Scan(includes, excludes, args.FollowSym)
 	if err != nil {
 		return fmt.Errorf("scan B error: %w", err)
 	}
@@ -210,6 +222,24 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}
 	}
 
+	// differences at or below an unreadable path are unknown, so they are not reported.
+	var failures []ReadFailure
+	failedPaths := make(map[string]bool)
+	for side, failed := range map[string]map[string]string{"A": failedA, "B": failedB} {
+		for p, msg := range failed {
+			failures = append(failures, ReadFailure{Path: p, Msg: side + ": " + msg})
+			failedPaths[p] = true
+		}
+	}
+	if len(failedPaths) > 0 {
+		results = slices.DeleteFunc(results, func(item DiffItem) bool {
+			return isAtOrInside(item.Path, failedPaths)
+		})
+		commonJobs = slices.DeleteFunc(commonJobs, func(job CompareJob) bool {
+			return isAtOrInside(job.PathA, failedPaths) || isAtOrInside(job.PathB, failedPaths)
+		})
+	}
+
 	sort.Slice(commonJobs, func(i, j int) bool {
 		return filesA[commonJobs[i].PathA] > filesA[commonJobs[j].PathA]
 	})
@@ -221,6 +251,17 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	close(jobCh)
 
 	resultCh := make(chan DiffItem, len(commonJobs))
+	failureCh := make(chan ReadFailure, 2*len(commonJobs))
+	// reportErrs reports hash errors on either side and whether any occurred.
+	reportErrs := func(j CompareJob, errA, errB error) bool {
+		if errA != nil {
+			failureCh <- ReadFailure{Path: j.PathA, Msg: "A: " + errA.Error()}
+		}
+		if errB != nil {
+			failureCh <- ReadFailure{Path: j.PathB, Msg: "B: " + errB.Error()}
+		}
+		return errA != nil || errB != nil
+	}
 	progressCh := make(chan struct{}, len(commonJobs))
 	var barWg sync.WaitGroup
 
@@ -272,7 +313,10 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 						md5A, errA := nodeA.GetMD5(j.PathA, args.FollowSym)
 						md5B, errB := nodeB.GetMD5(j.PathB, args.FollowSym)
 
-						if errA != nil || errB != nil || md5A != md5B {
+						if reportErrs(j, errA, errB) {
+							return
+						}
+						if md5A != md5B {
 							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathB, Type: Modified, IsDir: false}
 							return
 						}
@@ -292,7 +336,10 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 							_, _ = fmt.Fprintf(cmd.ErrWriter, "SHA check for %s took %v\n", j.PathA, time.Since(start))
 						}
 
-						if errA != nil || errB != nil || shaA != shaB {
+						if reportErrs(j, errA, errB) {
+							return
+						}
+						if shaA != shaB {
 							resultCh <- DiffItem{Path: j.PathA, PathB: j.PathA, Type: Modified, IsDir: false}
 						}
 					}(path)
@@ -303,6 +350,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 
 	wg.Wait()
 	close(resultCh)
+	close(failureCh)
 	close(progressCh)
 	barWg.Wait()
 
@@ -314,8 +362,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	for item := range resultCh {
 		results = append(results, item)
 	}
+	for f := range failureCh {
+		failures = append(failures, f)
+	}
 
-	return printAndDetermineExit(results, cmd, showSummary)
+	return printAndDetermineExit(results, failures, cmd, showSummary)
 }
 
 // readPassword reads a password from the terminal with echo disabled.

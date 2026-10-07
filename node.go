@@ -25,9 +25,10 @@ type ScanArgs struct {
 }
 
 type ScanReply struct {
-	Files map[string]int64
-	Dirs  []string
-	Error string
+	Files  map[string]int64
+	Dirs   []string
+	Failed map[string]string
+	Error  string
 }
 
 type HashArgs struct {
@@ -43,7 +44,7 @@ type HashReply struct {
 }
 
 type DirNode interface {
-	Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error)
+	Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error)
 	GetMD5(relPath string, followSym bool) (string, error)
 	GetSHA(relPath string, limit int64, followSym bool) (string, error)
 	Close() error
@@ -70,7 +71,7 @@ func createNode(ctx context.Context, pathStr, agentBin string, useSudo bool, ver
 
 type LocalNode struct{ root string }
 
-func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error) {
+func (n *LocalNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
 	return coreScan(n.root, includes, excludes, followSym)
 }
 func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
@@ -209,13 +210,13 @@ func NewRemoteNode(ctx context.Context, host, root, agentBin string, useSudo boo
 	return &RemoteNode{cmd: cmd, client: client, root: root}, nil
 }
 
-func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, error) {
+func (n *RemoteNode) Scan(includes, excludes []string, followSym bool) (map[string]int64, []string, map[string]string, error) {
 	reply := &ScanReply{}
 	err := n.client.Call("RpcAgent.Scan", ScanArgs{Root: n.root, Includes: includes, Excludes: excludes, FollowSym: followSym}, reply)
 	if reply.Error != "" {
-		return nil, nil, errors.New(reply.Error)
+		return nil, nil, nil, errors.New(reply.Error)
 	}
-	return reply.Files, reply.Dirs, err
+	return reply.Files, reply.Dirs, reply.Failed, err
 }
 
 func (n *RemoteNode) GetMD5(relPath string, followSym bool) (string, error) {
