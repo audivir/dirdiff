@@ -369,3 +369,24 @@ func TestFollowSymlinks(t *testing.T) {
 		t.Errorf("expected loop to be listed once as added dir, got %v:\n%s", err, outBuf.String())
 	}
 }
+
+func TestFlatRejectsDuplicateNames(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "same.txt"), "q")
+	createFile(t, filepath.Join(dirA, "x", "same.txt"), "hi")
+	createFile(t, filepath.Join(dirB, "y", "same.txt"), "q")
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-progressbar", "--flat", dirA, dirB})
+
+	if err == nil || !strings.Contains(err.Error(), "same.txt, x/same.txt") {
+		t.Errorf("expected duplicate name error, got: %v", err)
+	}
+	if outBuf.Len() != 0 {
+		t.Errorf("expected no output, got:\n%s", outBuf.String())
+	}
+}

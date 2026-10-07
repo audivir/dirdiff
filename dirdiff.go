@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,28 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 	return false
 }
 
+// flatIndex maps file names to their paths and fails if a name occurs more than once.
+func flatIndex(files map[string]int64, side string) (map[string]string, error) {
+	byName := make(map[string][]string)
+	for p := range files {
+		byName[path.Base(p)] = append(byName[path.Base(p)], p)
+	}
+	var dupes []string
+	index := make(map[string]string, len(byName))
+	for name, paths := range byName {
+		if len(paths) > 1 {
+			slices.Sort(paths)
+			dupes = append(dupes, strings.Join(paths, ", "))
+		}
+		index[name] = paths[0]
+	}
+	if len(dupes) > 0 {
+		slices.Sort(dupes)
+		return nil, fmt.Errorf("--flat requires unique file names, but %s has duplicates: %s", side, strings.Join(dupes, "; "))
+	}
+	return index, nil
+}
+
 // isTerminal reports whether w is a terminal.
 func isTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
@@ -143,13 +166,13 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 
 	if args.Flat {
 		// --- Flat Mode ---
-		flatA := make(map[string]string)
-		for p := range filesA {
-			flatA[filepath.Base(p)] = p
+		flatA, err := flatIndex(filesA, "A")
+		if err != nil {
+			return err
 		}
-		flatB := make(map[string]string)
-		for p := range filesB {
-			flatB[filepath.Base(p)] = p
+		flatB, err := flatIndex(filesB, "B")
+		if err != nil {
+			return err
 		}
 
 		for base, pA := range flatA {

@@ -32,7 +32,8 @@ Common options:
   directories from the comparison.
 - `-w, --workers`: number of parallel workers, defaults to the number of CPUs.
 - `-L, --follow-symlinks`: follow symbolic links.
-- `--flat`: compare files by name only, ignoring directory structure.
+- `--flat`: compare files by name only, ignoring directory structure. File names must be
+  unique on each side.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus
   `-l, --fast-limit` and `-g, --global-limit` to control the size limits used.
 - `-t, --tree`: print a side-by-side tree view of the differences.
