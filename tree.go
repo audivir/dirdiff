@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -52,13 +53,13 @@ type TreeLine struct {
 	RightColor    *color.Color
 }
 
-// getTerminalWidth returns the current terminal width or a default on error
-func getTerminalWidth() int {
-	// for testing purposes
-	if os.Getenv("TEST_FIX_WIDTH") != "" {
-		return FALLBACK_TERMINAL_WIDTH // standard width
+// getTerminalWidth returns the terminal width of w, or a default if w is not a terminal.
+func getTerminalWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return FALLBACK_TERMINAL_WIDTH
 	}
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	width, _, err := term.GetSize(int(f.Fd()))
 	if err != nil || width <= 0 {
 		return FALLBACK_TERMINAL_WIDTH // fallback standard width
 	}
@@ -163,7 +164,7 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 	generateTreeLines(root, "", "", &lines)
 
 	// calculate column widths
-	termWidth := getTerminalWidth()
+	termWidth := getTerminalWidth(cmd.Writer)
 	maxColWidth := (termWidth - utf8.RuneCountInString(SEPARATOR)) / 2 // subtract the separator size
 
 	longestLeft := utf8.RuneCountInString(pathA)
