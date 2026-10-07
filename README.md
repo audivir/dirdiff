@@ -33,8 +33,9 @@ Common options:
   a `/` also match a name at any depth, as in `.gitignore`.
 - `-w, --workers`: number of parallel workers, defaults to the number of CPUs.
 - `-L, --follow-symlinks`: follow symbolic links.
-- `--flat`: compare files by name only, ignoring directory structure. File names must be
-  unique on each side.
+- `--flat`: compare files by name only, ignoring directory structure. Copies of a name that
+  occurs more than once are paired by content, and unpaired copies are listed with a short
+  content hash.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus
   `-l, --fast-limit` and `-g, --global-limit` to control the size limits used.
 - `-t, --tree`: print a side-by-side tree view of the differences.

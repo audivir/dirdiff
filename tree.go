@@ -132,6 +132,9 @@ func printTree(results []DiffItem, pathA, pathB string, cmd *cli.Command) {
 	// build the unified tree
 	for _, item := range results {
 		parts := strings.Split(item.Path, "/")
+		if item.Hash != "" {
+			parts[len(parts)-1] += " [" + item.Hash + "]"
+		}
 		curr := root
 		for i, part := range parts {
 			if part == "" {
