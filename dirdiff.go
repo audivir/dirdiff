@@ -42,6 +42,8 @@ const (
 	// Agents without it report 0.
 	PROTOCOL_VERSION = 1
 	TIME_WARNING     = 2 * time.Second
+	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
+	PRECHECK_SIZE = 1024 * 1024
 )
 
 var (
@@ -367,7 +369,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 						if okA && okB {
 							equal, errA, errB = compareLocal(localA.path(j.PathA), localB.path(j.PathB), limit, args.FollowSym)
 						} else {
-							equal, errA, errB = compareByHash(nodeA, nodeB, j, limit, args.FollowSym)
+							equal, errA, errB = compareByHash(nodeA, nodeB, j, filesA[j.PathA], limit, args.FollowSym)
 						}
 						if time.Since(start) > TIME_WARNING && args.Verbose {
 							_, _ = fmt.Fprintf(cmd.ErrWriter, "Comparing %s took %v\n", j.PathA, time.Since(start))
@@ -406,17 +408,41 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	return printAndDetermineExit(results, failures, cmd, showSummary)
 }
 
-// compareByHash reports whether a file has the same content on both nodes by comparing a
-// sparse MD5 first and the SHA256 with the given limit second. It returns errors per side.
-func compareByHash(nodeA, nodeB DirNode, j CompareJob, limit int64, followSym bool) (bool, error, error) {
-	md5A, errA := nodeA.GetMD5(j.PathA, followSym)
-	md5B, errB := nodeB.GetMD5(j.PathB, followSym)
-	if errA != nil || errB != nil || md5A != md5B {
-		return false, errA, errB
+// compareByHash reports whether a file of the given size has the same content on both nodes
+// by comparing the SHA256 with the given limit. Files above PRECHECK_SIZE compare a sparse MD5
+// first, which avoids reading them fully if they differ in the sampled regions. It returns
+// errors per side.
+func compareByHash(nodeA, nodeB DirNode, j CompareJob, size, limit int64, followSym bool) (bool, error, error) {
+	if size > PRECHECK_SIZE {
+		md5A, md5B, errA, errB := onBothNodes(func() (string, error) {
+			return nodeA.GetMD5(j.PathA, followSym)
+		}, func() (string, error) {
+			return nodeB.GetMD5(j.PathB, followSym)
+		})
+		if errA != nil || errB != nil || md5A != md5B {
+			return false, errA, errB
+		}
 	}
-	shaA, errA := nodeA.GetSHA(j.PathA, limit, followSym)
-	shaB, errB := nodeB.GetSHA(j.PathB, limit, followSym)
+	shaA, shaB, errA, errB := onBothNodes(func() (string, error) {
+		return nodeA.GetSHA(j.PathA, limit, followSym)
+	}, func() (string, error) {
+		return nodeB.GetSHA(j.PathB, limit, followSym)
+	})
 	return errA == nil && errB == nil && shaA == shaB, errA, errB
+}
+
+// onBothNodes runs hashA and hashB concurrently and returns both results.
+func onBothNodes(hashA, hashB func() (string, error)) (string, string, error, error) {
+	var hA string
+	var errA error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hA, errA = hashA()
+	}()
+	hB, errB := hashB()
+	<-done
+	return hA, hB, errA, errB
 }
 
 // readPassword reads a password from the terminal with echo disabled.
