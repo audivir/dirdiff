@@ -93,19 +93,19 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 	if showSummary {
 		var parts []string
 		if modifiedFiles > 0 {
-			parts = append(parts, fmt.Sprintf("%d modified files", modifiedFiles))
+			parts = append(parts, countNoun(modifiedFiles, "modified file"))
 		}
 		if addedFiles > 0 {
-			parts = append(parts, fmt.Sprintf("%d added files", addedFiles))
+			parts = append(parts, countNoun(addedFiles, "added file"))
 		}
 		if removedFiles > 0 {
-			parts = append(parts, fmt.Sprintf("%d removed files", removedFiles))
+			parts = append(parts, countNoun(removedFiles, "removed file"))
 		}
 		if addedDirs > 0 {
-			parts = append(parts, fmt.Sprintf("%d added dirs", addedDirs))
+			parts = append(parts, countNoun(addedDirs, "added dir"))
 		}
 		if removedDirs > 0 {
-			parts = append(parts, fmt.Sprintf("%d removed dirs", removedDirs))
+			parts = append(parts, countNoun(removedDirs, "removed dir"))
 		}
 
 		summary := strings.Join(parts, ", ")
@@ -137,4 +137,12 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary boo
 		return ErrBSubsetA
 	}
 	return nil
+}
+
+// countNoun formats n followed by noun, pluralized unless n is 1.
+func countNoun(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
