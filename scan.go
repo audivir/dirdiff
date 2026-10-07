@@ -36,7 +36,8 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 		return nil, nil, nil, fmt.Errorf("%s is not a directory", rootDir)
 	}
 
-	visitedPaths := make(map[string]bool)
+	// real paths of the directories being walked, used to detect symlink loops.
+	ancestors := make(map[string]bool)
 
 	var walk func(currPath string) error
 	walk = func(currPath string) error {
@@ -69,16 +70,13 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 			return fail(err)
 		}
 
+		var realPath string
 		isSym := info.Mode()&os.ModeSymlink != 0
 		if isSym && followSym {
-			realPath, err := filepath.EvalSymlinks(currPath)
+			realPath, err = filepath.EvalSymlinks(currPath)
 			if err != nil {
 				return fail(err)
 			}
-			if visitedPaths[realPath] {
-				return nil // Cycle detected, bail out
-			}
-			visitedPaths[realPath] = true
 
 			// Swap our stat info to the symlink target
 			info, err = os.Stat(realPath)
@@ -90,6 +88,20 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 		if info.IsDir() {
 			if slashRel != "" {
 				dirs = append(dirs, slashRel)
+			}
+			if followSym {
+				if realPath == "" {
+					realPath, err = filepath.EvalSymlinks(currPath)
+					if err != nil {
+						return fail(err)
+					}
+				}
+				// a symlink loop is listed as a directory but not descended into.
+				if ancestors[realPath] {
+					return nil
+				}
+				ancestors[realPath] = true
+				defer delete(ancestors, realPath)
 			}
 			entries, err := os.ReadDir(currPath)
 			if err != nil {

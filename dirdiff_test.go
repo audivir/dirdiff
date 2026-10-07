@@ -332,3 +332,40 @@ func TestUnreadablePathsAreErrors(t *testing.T) {
 		t.Errorf("expected 2 read errors, got:\n%s", errBuf.String())
 	}
 }
+
+func TestFollowSymlinks(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(root, "target"), "t")
+	createFile(t, filepath.Join(dirA, "l1"), "t")
+	createFile(t, filepath.Join(dirA, "l2"), "t")
+	createFile(t, filepath.Join(dirA, "sub", "f"), "x")
+	createFile(t, filepath.Join(dirB, "sub", "f"), "x")
+	// two links to the same file, and a loop back to the root of B.
+	for _, link := range []string{"l1", "l2"} {
+		if err := os.Symlink(filepath.Join(root, "target"), filepath.Join(dirB, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(dirB, filepath.Join(dirB, "sub", "loop")); err != nil {
+		t.Fatal(err)
+	}
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-L", "-e", "sub/loop", dirA, dirB})
+	if err != nil {
+		t.Errorf("expected identical, got %v:\n%s", err, outBuf.String())
+	}
+
+	outBuf.Reset()
+	app = newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err = app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", "-L", dirA, dirB})
+	if !errors.Is(err, ErrASubsetB) || !strings.Contains(outBuf.String(), "+ sub/loop/") {
+		t.Errorf("expected loop to be listed once as added dir, got %v:\n%s", err, outBuf.String())
+	}
+}
