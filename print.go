@@ -19,6 +19,9 @@ type counts struct {
 	RemovedDirs     int `json:"removed_dirs"`
 	MetadataChanges int `json:"metadata_changes"`
 	UnreadablePaths int `json:"unreadable_paths"`
+	// SkippedHidden and SkippedIgnored count the entries left out on both sides together.
+	SkippedHidden  int `json:"skipped_hidden"`
+	SkippedIgnored int `json:"skipped_ignored"`
 }
 
 // countResults counts the differences and failures by kind.
@@ -60,12 +63,13 @@ func verdict(c counts) (string, error) {
 	return "identical", nil
 }
 
-func printAndDetermineExit(results []DiffItem, failures []ReadFailure, cmd *cli.Command, showSummary bool) error {
+func printAndDetermineExit(results []DiffItem, failures []ReadFailure, skipped counts, cmd *cli.Command, showSummary bool) error {
 	// sort alphabetically
 	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
 	sort.Slice(failures, func(i, j int) bool { return failures[i].Msg() < failures[j].Msg() })
 
 	c := countResults(results, failures)
+	c.SkippedHidden, c.SkippedIgnored = skipped.SkippedHidden, skipped.SkippedIgnored
 	result, err := verdict(c)
 	quiet := cmd.Bool("quiet")
 
@@ -154,6 +158,12 @@ func printSummary(c counts, result string, cmd *cli.Command) {
 	cyan := color.New(color.FgCyan).FprintfFunc()
 
 	_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
+	defer func() {
+		if c.SkippedHidden > 0 || c.SkippedIgnored > 0 {
+			cyan(cmd.ErrWriter, "Skipped %s and %s (-u includes ignored, -uu also hidden).\n",
+				countNoun(c.SkippedHidden, "hidden entry"), countNoun(c.SkippedIgnored, "ignored entry"))
+		}
+	}()
 	if result == "identical" {
 		green(cmd.ErrWriter, "Directories are identical.\n")
 		return
@@ -250,6 +260,9 @@ func formatChanges(changes []MetaChange) string {
 func countNoun(n int, noun string) string {
 	if n == 1 {
 		return fmt.Sprintf("%d %s", n, noun)
+	}
+	if stem, ok := strings.CutSuffix(noun, "y"); ok {
+		return fmt.Sprintf("%d %sies", n, stem)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
 }

@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 6
+	PROTOCOL_VERSION = 7
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -182,7 +182,9 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		return fmt.Errorf("invalid fast globs: %w", err)
 	}
 
-	scanOpts := ScanOptions{Includes: includes, Excludes: excludes, FollowSym: args.FollowSym, Metadata: args.Metadata}
+	scanOpts := args.Filter
+	scanOpts.Includes, scanOpts.Excludes = includes, excludes
+	scanOpts.FollowSym, scanOpts.Metadata = args.FollowSym, args.Metadata
 	var scanA *ScanResult
 	var errA error
 	scannedA := make(chan struct{})
@@ -493,7 +495,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		failures = append(failures, f)
 	}
 
-	return printAndDetermineExit(results, failures, cmd, showSummary)
+	skipped := counts{
+		SkippedHidden:  scanA.SkippedHidden + scanB.SkippedHidden,
+		SkippedIgnored: scanA.SkippedIgnored + scanB.SkippedIgnored,
+	}
+	return printAndDetermineExit(results, failures, skipped, cmd, showSummary)
 }
 
 // compareByHash reports whether a file of the given size has the same content on both nodes

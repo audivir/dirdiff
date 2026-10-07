@@ -27,6 +27,24 @@ Either path can be local, or `host:/path` for a remote directory reached over SS
 All SSH commands to a host share one connection, so authentication happens once per host
 (except on Windows, whose SSH client does not support connection sharing).
 
+Like `fd` and `rg`, `dirdiff` skips hidden files and directories and those matched by ignore
+files by default. The summary reports how many entries were skipped. Use `-uu` to compare
+everything, for example to check a backup.
+
+The ignore files are `.ignore` files, and inside a git repository also `.gitignore` files,
+`.git/info/exclude`, and the global git ignore file, including those in parent directories.
+Each side applies its own ignore files.
+
+Filtering options, named as in `fd` and `rg`:
+
+- `-u, --unrestricted`: `-u` includes ignored entries, `-uu` also hidden ones.
+- `-H, --hidden`: include hidden files and directories.
+- `-I, --no-ignore`: do not respect any ignore files except those of `--ignore-file`.
+- `--no-ignore-vcs`, `--no-ignore-parent`, `--no-ignore-global`: do not respect `.gitignore`
+  files, the ignore files in parent directories, or the global git ignore file.
+- `--no-require-git`: respect `.gitignore` files also outside of git repositories.
+- `--ignore-file`: additional ignore file in `.gitignore` format, with the lowest priority.
+
 Common options:
 
 - `-i, --include`, `-e, --exclude`: glob patterns to include or exclude files and

@@ -40,12 +40,14 @@ type ParsedArgs struct {
 	SudoA, SudoB         bool
 	NoInstall            bool
 	BatchSize            int
-	Metadata             bool
-	FastLimit            int64
-	GlobalLimit          int64
-	FollowSym            bool
-	Flat                 bool
-	Verbose              bool
+	// Filter holds the hidden and ignore file options of the scan.
+	Filter      ScanOptions
+	Metadata    bool
+	FastLimit   int64
+	GlobalLimit int64
+	FollowSym   bool
+	Flat        bool
+	Verbose     bool
 }
 
 func main() {
@@ -98,12 +100,23 @@ func newApp() *cli.Command {
 		Name:      BIN_NAME,
 		Usage:     "Compare two directories locally or over SSH.",
 		UsageText: "dirdiff [options] <pathA|hostA:/pathA> <pathB|hostB:/pathB>",
-		Version:   version,
+		// allows grouped short flags such as -uu.
+		UseShortOptionHandling: true,
+		Version:                version,
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "include", Aliases: []string{"i"}, Usage: "Glob patterns to include files/dirs in the comparison"},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
 			&cli.IntFlag{Name: "batch-size", Value: 256, Usage: "Number of small files hashed per request to a remote agent"},
 			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
+			// filtering, named after the flags of fd and rg.
+			&cli.BoolFlag{Name: "hidden", Aliases: []string{"H"}, Usage: "Include hidden files and directories"},
+			&cli.BoolFlag{Name: "no-ignore", Aliases: []string{"I"}, Usage: "Do not respect .gitignore, .ignore, and global ignore files"},
+			&cli.BoolFlag{Name: "unrestricted", Aliases: []string{"u"}, Usage: "Reduce filtering: -u is --no-ignore, -uu also --hidden", Config: cli.BoolConfig{Count: new(int)}},
+			&cli.BoolFlag{Name: "no-ignore-vcs", Usage: "Do not respect .gitignore, .git/info/exclude, and the global git ignore file"},
+			&cli.BoolFlag{Name: "no-ignore-parent", Usage: "Do not respect ignore files in parent directories"},
+			&cli.BoolFlag{Name: "no-ignore-global", Usage: "Do not respect the global git ignore file"},
+			&cli.BoolFlag{Name: "no-require-git", Usage: "Respect .gitignore files also outside of git repositories"},
+			&cli.StringSliceFlag{Name: "ignore-file", Usage: "Additional ignore file in .gitignore format, applied with the lowest priority"},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
 			&cli.BoolFlag{Name: "metadata", Aliases: []string{"m"}, Usage: "Also compare permissions, owner, and group"},
@@ -193,6 +206,23 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		return &ParsedArgs{}, fmt.Errorf("--batch-size must be at least 1")
 	}
 
+	unrestricted := cmd.Count("unrestricted")
+	filter := ScanOptions{
+		Hidden:         cmd.Bool("hidden") || unrestricted >= 2,
+		NoIgnore:       cmd.Bool("no-ignore") || unrestricted >= 1,
+		NoIgnoreVCS:    cmd.Bool("no-ignore-vcs"),
+		NoIgnoreParent: cmd.Bool("no-ignore-parent"),
+		NoIgnoreGlobal: cmd.Bool("no-ignore-global"),
+		NoRequireGit:   cmd.Bool("no-require-git"),
+	}
+	for _, file := range cmd.StringSlice("ignore-file") {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return &ParsedArgs{}, fmt.Errorf("reading --ignore-file: %w", err)
+		}
+		filter.IgnorePatterns = append(filter.IgnorePatterns, strings.Split(string(data), "\n")...)
+	}
+
 	fastLimit, err := units.RAMInBytes(cmd.String("fast-limit"))
 	if err != nil || fastLimit <= 0 {
 		return &ParsedArgs{}, fmt.Errorf("invalid --fast-limit")
@@ -212,6 +242,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		SudoB:       sudoB,
 		NoInstall:   cmd.Bool("no-install"),
 		BatchSize:   int(cmd.Int("batch-size")),
+		Filter:      filter,
 		Metadata:    cmd.Bool("metadata"),
 		FastLimit:   fastLimit,
 		GlobalLimit: globalLimit,

@@ -1057,3 +1057,56 @@ func TestCompareMeta(t *testing.T) {
 		})
 	}
 }
+
+func TestIgnoreRules(t *testing.T) {
+	for _, env := range []string{"HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(env, t.TempDir())
+	}
+	setup := func(t *testing.T, repo bool) (string, string) {
+		root := t.TempDir()
+		createFile(t, filepath.Join(root, ".ignore"), "parent-ignored\n")
+		for i, side := range []string{"a", "b"} {
+			dir := filepath.Join(root, side)
+			content := fmt.Sprint(i)
+			if repo {
+				createFile(t, filepath.Join(dir, ".git", "HEAD"), content)
+			}
+			createFile(t, filepath.Join(dir, ".gitignore"), "build/\n*.log\n!keep.log\n")
+			createFile(t, filepath.Join(dir, "sub", ".ignore"), "tmp.txt\n")
+			for _, name := range []string{"keep.log", "x.log", "sub/tmp.txt", "parent-ignored", ".hidden", "other.txt"} {
+				createFile(t, filepath.Join(dir, name), content)
+			}
+		}
+		createFile(t, filepath.Join(root, "b", "build", "out"), "x")
+		return filepath.Join(root, "a"), filepath.Join(root, "b")
+	}
+	ignoreFile := filepath.Join(t.TempDir(), "ignore")
+	createFile(t, ignoreFile, "other.txt\n")
+
+	unignored := "+ build/\n~ keep.log\n~ other.txt\n~ parent-ignored\n~ sub/tmp.txt\n~ x.log\n"
+	tests := []struct {
+		name  string
+		repo  bool
+		flags []string
+		want  string
+	}{
+		{"default", true, nil, "~ keep.log\n~ other.txt\n"},
+		{"-u", true, []string{"-u"}, unignored},
+		{"-uu", true, []string{"-uu"}, "~ .git/HEAD\n~ .hidden\n" + unignored},
+		{"-H", true, []string{"-H"}, "~ .git/HEAD\n~ .hidden\n~ keep.log\n~ other.txt\n"},
+		{"--no-ignore-vcs", true, []string{"--no-ignore-vcs"}, "+ build/\n~ keep.log\n~ other.txt\n~ x.log\n"},
+		{"--no-ignore-parent", true, []string{"--no-ignore-parent"}, "~ keep.log\n~ other.txt\n~ parent-ignored\n"},
+		{"--ignore-file", true, []string{"--ignore-file", ignoreFile}, "~ keep.log\n"},
+		{"outside a repository", false, nil, "+ build/\n~ keep.log\n~ other.txt\n~ x.log\n"},
+		{"--no-require-git", false, []string{"--no-require-git"}, "~ keep.log\n~ other.txt\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirA, dirB := setup(t, tt.repo)
+			out, errOut, _ := runApp(t, append(tt.flags, dirA, dirB)...)
+			if out != tt.want {
+				t.Errorf("got:\n%s%s\nwant:\n%s", out, errOut, tt.want)
+			}
+		})
+	}
+}

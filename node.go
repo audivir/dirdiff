@@ -29,6 +29,17 @@ type ScanOptions struct {
 	FollowSym bool
 	// Metadata adds owners and groups, and the metadata of directories.
 	Metadata bool
+	// Hidden includes entries whose name starts with a dot.
+	Hidden bool
+	// NoIgnore disables all ignore files except IgnorePatterns, and the others disable a
+	// part of them, like the flags of fd and rg with the same names.
+	NoIgnore       bool
+	NoIgnoreVCS    bool
+	NoIgnoreParent bool
+	NoIgnoreGlobal bool
+	NoRequireGit   bool
+	// IgnorePatterns holds the lines of the --ignore-file files.
+	IgnorePatterns []string
 }
 
 // ScanResult stores the files, directories, and unreadable paths found by a scan.
@@ -38,6 +49,10 @@ type ScanResult struct {
 	Failed map[string]string
 	// DirMeta holds the metadata of each directory with metadata scanning.
 	DirMeta map[string]FileMeta
+	// SkippedHidden and SkippedIgnored count the hidden and ignored entries left out. The
+	// contents of a skipped directory are not counted.
+	SkippedHidden  int
+	SkippedIgnored int
 }
 
 type ScanArgs struct {

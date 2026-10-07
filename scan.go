@@ -8,7 +8,9 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // WALKERS bounds the directories walked in parallel.
@@ -53,8 +55,11 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 	slots := make(chan struct{}, WALKERS)
 
 	// ancestors holds the real paths of the parent directories, used to detect symlink loops.
-	var walk func(currPath string, ancestors []string) error
-	walk = func(currPath string, ancestors []string) error {
+	var skippedHidden, skippedIgnored atomic.Int64
+
+	// rules holds the ignore rules of the parent directory.
+	var walk func(currPath string, ancestors []string, rules ignoreRules) error
+	walk = func(currPath string, ancestors []string, rules ignoreRules) error {
 		rel, err := filepath.Rel(rootDir, currPath)
 		if err != nil || rel == "." {
 			rel = ""
@@ -67,6 +72,10 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 				if g.Match(slashRel) {
 					return nil
 				}
+			}
+			if !opts.Hidden && strings.HasPrefix(filepath.Base(currPath), ".") {
+				skippedHidden.Add(1)
+				return nil
 			}
 		}
 
@@ -101,6 +110,11 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 			}
 		}
 
+		if slashRel != "" && rules.ignores(currPath, info.IsDir()) {
+			skippedIgnored.Add(1)
+			return nil
+		}
+
 		if info.IsDir() {
 			if slashRel != "" {
 				mu.Lock()
@@ -129,6 +143,7 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 			if err != nil {
 				return fail(err)
 			}
+			rules := rules.enter(currPath, opts)
 			for _, e := range entries {
 				child := filepath.Join(currPath, e.Name())
 				if e.IsDir() || e.Type()&fs.ModeSymlink != 0 {
@@ -136,13 +151,13 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 					case slots <- struct{}{}:
 						wg.Go(func() {
 							defer func() { <-slots }()
-							_ = walk(child, ancestors)
+							_ = walk(child, ancestors, rules)
 						})
 						continue
 					default:
 					}
 				}
-				_ = walk(child, ancestors)
+				_ = walk(child, ancestors, rules)
 			}
 			return nil
 		}
@@ -171,7 +186,7 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 		return nil
 	}
 
-	err = walk(rootDir, nil)
+	err = walk(rootDir, nil, rootIgnoreRules(rootDir, opts))
 	wg.Wait()
 	if err != nil {
 		return nil, err
@@ -179,7 +194,10 @@ func coreScan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 	if len(incGlobs) > 0 {
 		dirs = dirsContaining(dirs, files)
 	}
-	return &ScanResult{Files: files, Dirs: dirs, Failed: failed, DirMeta: dirMeta}, nil
+	return &ScanResult{
+		Files: files, Dirs: dirs, Failed: failed, DirMeta: dirMeta,
+		SkippedHidden: int(skippedHidden.Load()), SkippedIgnored: int(skippedIgnored.Load()),
+	}, nil
 }
 
 // dirsContaining returns the dirs that contain at least one of files.
