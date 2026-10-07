@@ -139,13 +139,18 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}
 	}
 
-	nodeA, _, err := createNode(ctx, args.PathA, args.AgentBinA, args.SudoA, args.Verbose)
+	notify := cmd.ErrWriter
+	if cmd.Bool("quiet") {
+		notify = io.Discard
+	}
+
+	nodeA, _, err := createNode(ctx, args.PathA, args.AgentBinA, args.SudoA, args.Verbose, notify)
 	if err != nil {
 		return fmt.Errorf("setup A failed: %w", err)
 	}
 	defer func() { _ = nodeA.Close() }()
 
-	nodeB, _, err := createNode(ctx, args.PathB, args.AgentBinB, args.SudoB, args.Verbose)
+	nodeB, _, err := createNode(ctx, args.PathB, args.AgentBinB, args.SudoB, args.Verbose, notify)
 	if err != nil {
 		return fmt.Errorf("setup B failed: %w", err)
 	}

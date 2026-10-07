@@ -6,8 +6,7 @@ added, removed, and modified files and directories.
 ## Prerequisites
 
 - Go 1.26 or newer, to install via `go install` or build from source.
-- For remote comparisons, SSH access to the remote host and a copy of the
-  `dirdiff` binary on it (used as the `--remote-bin` path, or resolved on `$PATH`).
+- For remote comparisons, SSH access to the remote host, with `sh` and `uname` available.
 
 ## Installation
 
@@ -43,6 +42,10 @@ Common options:
   output verbosity and styling. A summary is printed to stderr if it is a terminal or with
   `--verbose`.
 - `-r, --remote-bin`: path to the remote agent binary, once for all hosts or once per host.
+  Without it, `dirdiff` uses the agent in `${XDG_CACHE_HOME:-~/.cache}/dirdiff/` or on `$PATH`
+  of the remote host. If neither exists or matches the protocol version, it installs a matching
+  agent into that cache: the running binary for the same platform, or otherwise the release
+  binary for the remote platform, downloaded into the local user cache first.
 - `-s, --sudo`, `--sudo-a`, `--sudo-b`: escalate privileges via sudo on all remote hosts,
   or only on host A or host B.
 

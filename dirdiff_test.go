@@ -40,26 +40,28 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// setupFakeRemote puts a fake ssh on PATH that runs the remote command locally, and
-// returns the directory holding it. A dirdiff agent is added to PATH if agentOnPath is set.
-func setupFakeRemote(t *testing.T, agentOnPath bool) string {
+// setupFakeRemote puts a fake ssh on PATH that runs the remote command locally.
+// The agent on the remote PATH is either missing (""), "current", or "old".
+func setupFakeRemote(t *testing.T, agent string) {
 	binDir := t.TempDir()
-	script := "#!/bin/sh\nshift\nexec sh -c \"$*\"\n"
-	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(script), 0755); err != nil {
+	write := func(name, script string) {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("ssh", "#!/bin/sh\nshift\nexec sh -c \"$*\"\n")
+	exe, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if agentOnPath {
-		exe, err := os.Executable()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(exe, filepath.Join(binDir, BIN_NAME)); err != nil {
-			t.Fatal(err)
-		}
+	switch agent {
+	case "current":
+		write(BIN_NAME, "#!/bin/sh\nexec "+shellQuote(exe)+" \"$@\"\n")
+	case "old":
+		write(BIN_NAME, "#!/bin/sh\nDIRDIFF_TEST_OLD_AGENT=1 exec "+shellQuote(exe)+" \"$@\"\n")
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	return binDir
 }
 
 // runApp runs dirdiff with args and returns its stdout, stderr, and error.
@@ -553,8 +555,7 @@ func TestRemoteStartupErrorIncludesStderr(t *testing.T) {
 }
 
 func TestRemoteAgentProtocolMismatch(t *testing.T) {
-	setupFakeRemote(t, true)
-	t.Setenv("DIRDIFF_TEST_OLD_AGENT", "1")
+	setupFakeRemote(t, "old")
 	dir := t.TempDir()
 
 	_, _, err := runApp(t, "--remote-bin", BIN_NAME, "host:"+dir, dir)
@@ -565,7 +566,7 @@ func TestRemoteAgentProtocolMismatch(t *testing.T) {
 }
 
 func TestRemoteAgent(t *testing.T) {
-	setupFakeRemote(t, true)
+	setupFakeRemote(t, "current")
 	root := setupTestEnv(t)
 	defer func() { _ = os.RemoveAll(root) }()
 
@@ -573,5 +574,37 @@ func TestRemoteAgent(t *testing.T) {
 
 	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(out) != "~ file2" {
 		t.Errorf("expected file2 to be modified, got %v:\n%s", err, out)
+	}
+}
+
+func TestRemoteAgentInstall(t *testing.T) {
+	for _, agent := range []string{"", "old"} {
+		t.Run("path agent "+agent, func(t *testing.T) {
+			setupFakeRemote(t, agent)
+			dirA, dirB := t.TempDir(), t.TempDir()
+			createFile(t, filepath.Join(dirA, "f"), "1")
+			createFile(t, filepath.Join(dirB, "f"), "2")
+
+			out, errOut, err := runApp(t, "host:"+dirA, dirB)
+			if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(out) != "~ f" {
+				t.Fatalf("expected f to be modified, got %v:\n%s%s", err, out, errOut)
+			}
+			if !strings.Contains(errOut, "Installing dirdiff") {
+				t.Errorf("expected install notice, got:\n%s", errOut)
+			}
+			key, err := agentCacheKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(os.Getenv("XDG_CACHE_HOME"), BIN_NAME, key, BIN_NAME)); err != nil {
+				t.Errorf("expected cached agent: %v", err)
+			}
+
+			// the cached agent is reused.
+			_, errOut, _ = runApp(t, "host:"+dirA, dirB)
+			if strings.Contains(errOut, "Installing") {
+				t.Errorf("expected no second install, got:\n%s", errOut)
+			}
+		})
 	}
 }
