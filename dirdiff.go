@@ -111,6 +111,9 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("scan B error: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	var results []DiffItem
 	var commonJobs []CompareJob
@@ -293,6 +296,11 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	close(resultCh)
 	close(progressCh)
 	barWg.Wait()
+
+	// workers skip remaining jobs on cancellation, so the results are incomplete.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	for item := range resultCh {
 		results = append(results, item)

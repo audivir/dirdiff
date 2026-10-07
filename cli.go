@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -45,10 +47,20 @@ type ParsedArgs struct {
 
 func main() {
 	app := newApp()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		// restore default signal handling so a second interrupt terminates immediately.
+		<-ctx.Done()
+		stop()
+	}()
 
-	if err := app.Run(ctx, os.Args); err != nil {
+	err := app.Run(ctx, os.Args)
+	if ctx.Err() != nil {
+		fmt.Fprintln(os.Stderr, "Interrupted")
+		os.Exit(130)
+	}
+	if err != nil {
 		if errors.Is(err, ErrASubsetB) {
 			os.Exit(3)
 		}

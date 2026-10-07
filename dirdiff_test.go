@@ -240,3 +240,26 @@ func TestResolveSudo(t *testing.T) {
 		})
 	}
 }
+
+func TestCancelledRunReportsNoResults(t *testing.T) {
+	root := setupTestEnv(t)
+	defer func() { _ = os.RemoveAll(root) }()
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	args := []string{"dirdiff", "--no-color", "--no-progressbar",
+		filepath.Join(root, "test_base"), filepath.Join(root, "test_modified")}
+	err := app.Run(ctx, args)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+	if outBuf.Len() != 0 {
+		t.Errorf("expected no output, got:\n%s", outBuf.String())
+	}
+}

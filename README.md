@@ -52,6 +52,7 @@ The exit code reports the comparison result:
 - `2`: an error occurred.
 - `3`: directory A is a subset of directory B.
 - `4`: directory B is a subset of directory A.
+- `130`: the comparison was interrupted, and no results were printed.
 
 ## License
 
