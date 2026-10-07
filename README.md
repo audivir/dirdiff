@@ -11,7 +11,7 @@ added, removed, and modified files and directories.
 ## Installation
 
 ```shell
-go install github.com/audivir/dirdiff@latest
+go install github.com/audivir/dirdiff/v2@latest
 ```
 
 Prebuilt binaries for Linux, macOS, and Windows are attached to each
