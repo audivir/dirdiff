@@ -1110,3 +1110,43 @@ func TestIgnoreRules(t *testing.T) {
 		})
 	}
 }
+
+func TestSSHHostSources(t *testing.T) {
+	sshDir := t.TempDir()
+	createFile(t, filepath.Join(sshDir, "config"), "Host alpha beta *.corp\n  User x\nhost=gamma\nInclude conf.d/*.conf\n")
+	createFile(t, filepath.Join(sshDir, "conf.d", "work.conf"), "Host delta !epsilon\n")
+	createFile(t, filepath.Join(sshDir, "known_hosts"),
+		"zeta,10.0.0.1 ssh-ed25519 AAAA\n[eta]:2222 ssh-ed25519 AAAA\n|1|hashed= ssh-ed25519 AAAA\n@cert-authority *.corp ssh-ed25519 AAAA\n")
+
+	hosts := configHosts(filepath.Join(sshDir, "config"), sshDir, 0)
+	hosts = append(hosts, knownHosts(filepath.Join(sshDir, "known_hosts"))...)
+
+	want := []string{"alpha", "beta", "gamma", "delta", "zeta", "10.0.0.1", "eta"}
+	if !slices.Equal(hosts, want) {
+		t.Errorf("got %v, want %v", hosts, want)
+	}
+}
+
+func TestComplete(t *testing.T) {
+	setupFakeRemote(t, "current")
+	dir := t.TempDir()
+	createFile(t, filepath.Join(dir, "sub", "f"), "x")
+	createFile(t, filepath.Join(dir, "file"), "x")
+	createFile(t, filepath.Join(dir, ".hidden"), "x")
+
+	tests := map[string]string{
+		"host:" + dir + "/":   "host:" + dir + "/file\nhost:" + dir + "/sub/\n",
+		"host:" + dir + "/.h": "host:" + dir + "/.hidden\n",
+		"host:" + dir + "/s":  "host:" + dir + "/sub/\n",
+		"--no-req":            "--no-require-git\n",
+	}
+	for word, want := range tests {
+		t.Run(word, func(t *testing.T) {
+			var out bytes.Buffer
+			complete(context.Background(), newApp(), word, &out)
+			if out.String() != want {
+				t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
+			}
+		})
+	}
+}

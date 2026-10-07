@@ -17,6 +17,16 @@ go install github.com/audivir/dirdiff/v2@latest
 Prebuilt binaries for Linux, macOS, and Windows are attached to each
 [GitHub Release](https://github.com/audivir/dirdiff/releases).
 
+Shell completion for bash, zsh, and fish completes flags, hosts from `~/.ssh/config` and
+`~/.ssh/known_hosts`, and remote paths after `host:`, like `scp`. Remote paths are only
+completed for hosts that need no password prompt.
+
+```shell
+dirdiff --gen-completions zsh > "${fpath[1]}/_dirdiff"
+dirdiff --gen-completions bash > ~/.local/share/bash-completion/completions/dirdiff
+dirdiff --gen-completions fish > ~/.config/fish/completions/dirdiff.fish
+```
+
 ## Usage
 
 ```shell

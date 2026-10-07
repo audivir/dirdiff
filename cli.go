@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -52,6 +53,14 @@ type ParsedArgs struct {
 
 func main() {
 	app := newApp()
+	if len(os.Args) > 1 && os.Args[1] == COMPLETE_CMD {
+		word := ""
+		if len(os.Args) > 2 {
+			word = os.Args[2]
+		}
+		complete(context.Background(), app, word, os.Stdout)
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -145,10 +154,19 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "sudo-b", Usage: "Escalate privileges via sudo on remote host B"},
 			&cli.BoolFlag{Name: "no-install", Usage: "Never install an agent on remote hosts, only use an existing compatible one"},
 			&cli.BoolFlag{Name: "agent", Hidden: true, Usage: "Run as RPC agent over stdin/stdout"},
+			&cli.StringFlag{Name: "gen-completions", Usage: "Print the completion script for bash, zsh, or fish"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if cmd.Bool("agent") {
 				return runAgent()
+			}
+			if shell := cmd.String("gen-completions"); shell != "" {
+				script, ok := completionScripts[shell]
+				if !ok {
+					return fmt.Errorf("--gen-completions must be bash, zsh, or fish")
+				}
+				_, err := io.WriteString(cmd.Writer, script)
+				return err
 			}
 			parsedArgs, err := parseArgs(cmd)
 			if err != nil {
