@@ -70,6 +70,12 @@ Common options:
   list differences as `* path (mode 0644 -> 0600)`. Owners and groups are compared by name
   where both hosts resolve it, and by ID otherwise. Symlink permissions are ignored, and
   Windows only compares permissions.
+- `--cache`: reuse the hashes of files unchanged since an earlier run with `--cache`, and store
+  new ones. Each host keeps the hashes in its user cache directory, one file per compared
+  directory. A hash is reused if size, modification and change time, and inode are unchanged,
+  and the file had not changed shortly before it was hashed. Windows only checks size and
+  modification time. A cache cannot detect corruption that leaves these attributes intact, so
+  leave it off to verify backups.
 - `--quick`: treat files with equal size and modification time (in seconds) as identical
   without reading them. Files with other modification times are still compared by content.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus

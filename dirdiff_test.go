@@ -1150,3 +1150,95 @@ func TestComplete(t *testing.T) {
 		})
 	}
 }
+
+// resetHashCaches drops the loaded caches, so the next run reads them from disk.
+func resetHashCaches() {
+	hashCachesMu.Lock()
+	defer hashCachesMu.Unlock()
+	hashCaches = map[string]*hashCache{}
+}
+
+func TestHashCacheValidity(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	createFile(t, file, "aaa")
+	cache := &hashCache{entries: map[string]cacheEntry{}}
+	stampOf := func() stamp {
+		st, err := fileStamp(file, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	cache.store("f", stampOf(), "h")
+	if _, ok := cache.lookup("f", stampOf()); ok {
+		t.Error("expected a file changed just before hashing to be untrusted")
+	}
+
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	cache.store("f", stampOf(), "h")
+	if hash, ok := cache.lookup("f", stampOf()); !ok || hash != "h" {
+		t.Error("expected the hash of an unchanged old file")
+	}
+
+	if runtime.GOOS == "windows" {
+		return // no change time to detect a restored modification time
+	}
+	createFile(t, file, "bbb")
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cache.lookup("f", stampOf()); ok {
+		t.Error("expected a rewrite with the same size and time to change the stamp")
+	}
+}
+
+func TestCacheReusesHashes(t *testing.T) {
+	for _, env := range []string{"HOME", "XDG_CACHE_HOME", "LocalAppData"} {
+		t.Setenv(env, t.TempDir())
+	}
+	resetHashCaches()
+	t.Cleanup(resetHashCaches)
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	old := time.Now().Add(-time.Hour)
+	for _, dir := range []string{dirA, dirB} {
+		createFile(t, filepath.Join(dir, "f"), "same")
+		if err := os.Chtimes(filepath.Join(dir, "f"), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if out, _, err := runApp(t, "--cache", dirA, dirB); err != nil || out != "" {
+		t.Fatalf("expected identical, got %v:\n%s", err, out)
+	}
+	resetHashCaches()
+
+	// a wrong stored hash shows that the second run reads the cache instead of the file.
+	resolvedB, err := filepath.EvalSymlinks(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := cacheFor(resolvedB)
+	key := cacheKey("f", 0)
+	entry, ok := cache.entries[key]
+	if !ok {
+		t.Fatalf("expected a cached hash for f, got %v", cache.entries)
+	}
+	entry.Hash = "tampered"
+	cache.entries[key] = entry
+	cache.dirty = true
+	saveHashCaches()
+	resetHashCaches()
+
+	if out, _, err := runApp(t, "--cache", dirA, dirB); !errors.Is(err, ErrDiffsFound) || out != "~ f\n" {
+		t.Errorf("expected the cached hash to be used, got %v:\n%s", err, out)
+	}
+	if out, _, err := runApp(t, dirA, dirB); err != nil || out != "" {
+		t.Errorf("expected identical without --cache, got %v:\n%s", err, out)
+	}
+}

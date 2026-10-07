@@ -41,7 +41,7 @@ const (
 	READY_MSG = "__DIRDIFF_AGENT_READY__"
 	// PROTOCOL_VERSION changes whenever the RPC types or the hashing of an agent change.
 	// Agents without it report 0.
-	PROTOCOL_VERSION = 7
+	PROTOCOL_VERSION = 8
 	TIME_WARNING     = 2 * time.Second
 	// PRECHECK_SIZE is the file size above which a sparse MD5 is compared before the SHA256.
 	PRECHECK_SIZE = 1024 * 1024
@@ -159,14 +159,14 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	conns := sshConns{}
 	defer conns.closeAll()
 
-	optsA := remoteOptions{agentBin: args.AgentBinA, sudo: args.SudoA, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify}
+	optsA := remoteOptions{agentBin: args.AgentBinA, sudo: args.SudoA, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify, cache: args.Cache}
 	nodeA, _, err := createNode(ctx, args.PathA, optsA, conns)
 	if err != nil {
 		return fmt.Errorf("setup A failed: %w", err)
 	}
 	defer func() { _ = nodeA.Close() }()
 
-	optsB := remoteOptions{agentBin: args.AgentBinB, sudo: args.SudoB, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify}
+	optsB := remoteOptions{agentBin: args.AgentBinB, sudo: args.SudoB, noInstall: args.NoInstall, verbose: args.Verbose, notify: notify, cache: args.Cache}
 	nodeB, _, err := createNode(ctx, args.PathB, optsB, conns)
 	if err != nil {
 		return fmt.Errorf("setup B failed: %w", err)
@@ -447,7 +447,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 			for i, j := range toRead {
 				finish(j, equal[i], errsA[i], errsB[i])
 			}
-		case bothLocal:
+		case bothLocal && !args.Cache:
 			j := toRead[0]
 			equal, errA, errB := compareLocal(localA.path(j.PathA), localB.path(j.PathB), limitFor(j.PathA), args.FollowSym)
 			finish(j, equal, errA, errB)

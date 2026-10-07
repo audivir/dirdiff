@@ -22,6 +22,8 @@ func runAgent() error {
 	}{os.Stdin, os.Stdout, os.Stdin}
 	fmt.Println(READY_MSG)
 	rpc.ServeConn(conn)
+	// the connection ends when the master closes it after comparing.
+	saveHashCaches()
 	return nil
 }
 
@@ -64,7 +66,7 @@ func (a *RpcAgent) GetSHAs(args HashBatchArgs, reply *HashBatchReply) error {
 	var wg sync.WaitGroup
 	for i, item := range args.Items {
 		wg.Go(func() {
-			hash, err := coreSHA(args.Root, item.RelPath, item.Limit, args.FollowSym)
+			hash, err := cachedSHA(args.Root, item.RelPath, item.Limit, args.FollowSym, args.Cache)
 			reply.Hashes[i] = hash
 			if err != nil {
 				reply.Errors[i] = err.Error()
@@ -76,7 +78,7 @@ func (a *RpcAgent) GetSHAs(args HashBatchArgs, reply *HashBatchReply) error {
 }
 
 func (a *RpcAgent) GetSHA(args HashArgs, reply *HashReply) error {
-	hashStr, err := coreSHA(args.Root, args.RelPath, args.Limit, args.FollowSym)
+	hashStr, err := cachedSHA(args.Root, args.RelPath, args.Limit, args.FollowSym, args.Cache)
 	if err != nil {
 		reply.Error = err.Error()
 	}

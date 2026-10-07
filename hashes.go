@@ -20,6 +20,28 @@ func coreMD5(rootDir, relPath string, followSym bool) (string, error) {
 	return computeSparseHash(fullPath, md5.New(), 1024, followSym)
 }
 
+// cachedSHA returns the SHA256 like coreSHA, reusing the hash from the cache of rootDir if the
+// file is unchanged and useCache is set, and storing new hashes there.
+func cachedSHA(rootDir, relPath string, limit int64, followSym, useCache bool) (string, error) {
+	if !useCache {
+		return coreSHA(rootDir, relPath, limit, followSym)
+	}
+	path := filepath.Join(rootDir, filepath.FromSlash(relPath))
+	st, err := fileStamp(path, followSym && !isBrokenLink(path))
+	if err != nil {
+		return coreSHA(rootDir, relPath, limit, followSym)
+	}
+	cache, key := cacheFor(rootDir), cacheKey(relPath, limit)
+	if hash, ok := cache.lookup(key, st); ok {
+		return hash, nil
+	}
+	hash, err := coreSHA(rootDir, relPath, limit, followSym)
+	if err == nil {
+		cache.store(key, st, hash)
+	}
+	return hash, err
+}
+
 func coreSHA(rootDir, relPath string, limit int64, followSym bool) (string, error) {
 	fullPath := filepath.Join(rootDir, filepath.FromSlash(relPath))
 	return computeSparseHash(fullPath, sha256.New(), limit, followSym)

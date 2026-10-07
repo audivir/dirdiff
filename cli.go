@@ -41,6 +41,7 @@ type ParsedArgs struct {
 	SudoA, SudoB         bool
 	NoInstall            bool
 	BatchSize            int
+	Cache                bool
 	// Filter holds the hidden and ignore file options of the scan.
 	Filter      ScanOptions
 	Metadata    bool
@@ -132,6 +133,7 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{Name: "follow", Aliases: []string{"L", "follow-symlinks"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
 			&cli.BoolFlag{Name: "metadata", Aliases: []string{"m"}, Usage: "Also compare permissions, owner, and group"},
+			&cli.BoolFlag{Name: "cache", Usage: "Reuse hashes of files unchanged since an earlier run with --cache, stored in the user cache of each host"},
 			&cli.BoolFlag{Name: "quick", Usage: "Treat files with equal size and modification time as identical without reading them"},
 			// hashing
 			&cli.StringSliceFlag{Name: "fast", Aliases: []string{"f"}, Usage: "Glob patterns to use fast SHA256 hashes (sparse-hashing) for"},
@@ -273,6 +275,7 @@ func parseArgs(cmd *cli.Command) (*ParsedArgs, error) {
 		SudoB:       sudoB,
 		NoInstall:   cmd.Bool("no-install"),
 		BatchSize:   int(cmd.Int("batch-size")),
+		Cache:       cmd.Bool("cache"),
 		Filter:      filter,
 		Metadata:    cmd.Bool("metadata"),
 		FastLimit:   fastLimit,

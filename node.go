@@ -85,6 +85,7 @@ type HashArgs struct {
 	RelPath   string
 	Limit     int64
 	FollowSym bool
+	Cache     bool
 }
 
 type HashReply struct {
@@ -102,6 +103,7 @@ type HashBatchArgs struct {
 	Root      string
 	Items     []HashItem
 	FollowSym bool
+	Cache     bool
 }
 
 // HashBatchReply stores the hash or error of each item, in the order of the request.
@@ -127,6 +129,8 @@ type remoteOptions struct {
 	sudo      bool
 	noInstall bool
 	verbose   bool
+	// cache enables the hash cache on the node.
+	cache bool
 	// notify receives messages about agent installs.
 	notify io.Writer
 }
@@ -143,6 +147,9 @@ func createNode(ctx context.Context, pathStr string, opts remoteOptions, conns s
 			return nil, rPath, err
 		}
 		node, err := NewRemoteNode(ctx, conn, rPath, opts)
+		if err == nil {
+			node.cache = opts.cache
+		}
 		return node, rPath, err
 	}
 	absPath, err := filepath.Abs(pathStr)
@@ -153,10 +160,14 @@ func createNode(ctx context.Context, pathStr string, opts remoteOptions, conns s
 	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
 		absPath = resolved
 	}
-	return &LocalNode{root: absPath}, absPath, nil
+	return &LocalNode{root: absPath, cache: opts.cache}, absPath, nil
 }
 
-type LocalNode struct{ root string }
+type LocalNode struct {
+	root string
+	// cache reuses and stores hashes in the hash cache of root.
+	cache bool
+}
 
 // path returns the local path of relPath.
 func (n *LocalNode) path(relPath string) string {
@@ -170,22 +181,27 @@ func (n *LocalNode) GetMD5(relPath string, followSym bool) (string, error) {
 	return coreMD5(n.root, relPath, followSym)
 }
 func (n *LocalNode) GetSHA(relPath string, limit int64, followSym bool) (string, error) {
-	return coreSHA(n.root, relPath, limit, followSym)
+	return cachedSHA(n.root, relPath, limit, followSym, n.cache)
 }
 func (n *LocalNode) GetSHAs(items []HashItem, followSym bool) ([]string, []error) {
 	hashes, errs := make([]string, len(items)), make([]error, len(items))
 	for i, item := range items {
-		hashes[i], errs[i] = coreSHA(n.root, item.RelPath, item.Limit, followSym)
+		hashes[i], errs[i] = cachedSHA(n.root, item.RelPath, item.Limit, followSym, n.cache)
 	}
 	return hashes, errs
 }
-func (n *LocalNode) Close() error { return nil }
+func (n *LocalNode) Close() error {
+	saveHashCaches()
+	return nil
+}
 
 type RemoteNode struct {
 	cmd        *exec.Cmd
 	client     *rpc.Client
 	root       string
 	stderrDone chan struct{}
+	// cache makes the agent reuse and store hashes in its hash cache of root.
+	cache bool
 }
 
 // NewRemoteNode creates a new RemoteNode instance.
@@ -412,7 +428,7 @@ func (n *RemoteNode) GetMD5(relPath string, followSym bool) (string, error) {
 }
 func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string, error) {
 	reply := &HashReply{}
-	err := n.client.Call("RpcAgent.GetSHA", HashArgs{Root: n.root, RelPath: relPath, Limit: limit, FollowSym: followSym}, reply)
+	err := n.client.Call("RpcAgent.GetSHA", HashArgs{Root: n.root, RelPath: relPath, Limit: limit, FollowSym: followSym, Cache: n.cache}, reply)
 	if reply.Error != "" {
 		return "", errors.New(reply.Error)
 	}
@@ -421,7 +437,7 @@ func (n *RemoteNode) GetSHA(relPath string, limit int64, followSym bool) (string
 func (n *RemoteNode) GetSHAs(items []HashItem, followSym bool) ([]string, []error) {
 	reply := &HashBatchReply{}
 	errs := make([]error, len(items))
-	if err := n.client.Call("RpcAgent.GetSHAs", HashBatchArgs{Root: n.root, Items: items, FollowSym: followSym}, reply); err != nil {
+	if err := n.client.Call("RpcAgent.GetSHAs", HashBatchArgs{Root: n.root, Items: items, FollowSym: followSym, Cache: n.cache}, reply); err != nil {
 		for i := range errs {
 			errs[i] = err
 		}
