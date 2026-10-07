@@ -45,6 +45,8 @@ Common options:
 - `--json`: print one JSON document with the `result` (`identical`, `divergent`,
   `a_subset_of_b`, `b_subset_of_a`, or `incomplete`), the `differences`, the unreadable paths
   in `errors`, and the `summary` counts.
+- `-z, --null`: print each difference as its status (`+`, `-`, or `~`) and path, each
+  terminated by NUL. With `--flat`, `~` records also carry the path in directory B.
 - `-a, --show-all`: also traverse files inside added or removed directories.
 - `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
   output verbosity and styling. A summary is printed to stderr if it is a terminal or with

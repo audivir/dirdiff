@@ -76,10 +76,13 @@ func printAndDetermineExit(results []DiffItem, failures []ReadFailure, cmd *cli.
 	}
 
 	if !quiet {
-		if cmd.Bool("tree") {
+		switch {
+		case cmd.Bool("tree"):
 			args := cmd.Args().Slice()
 			printTree(results, args[0], args[1], cmd)
-		} else {
+		case cmd.Bool("null"):
+			writeNull(results, cmd.Bool("flat"), cmd)
+		default:
 			printList(results, cmd)
 		}
 		red := color.New(color.FgRed).FprintfFunc()
@@ -114,6 +117,25 @@ func printList(results []DiffItem, cmd *cli.Command) {
 			} else {
 				yellow(cmd.Writer, "~ %s%s\n", item.Path, suffix)
 			}
+		}
+	}
+}
+
+// writeNull writes each difference as its status and path, each terminated by NUL.
+// In flat mode, modified records also carry the path in B.
+func writeNull(results []DiffItem, flat bool, cmd *cli.Command) {
+	for _, item := range results {
+		path := item.Path
+		if item.IsDir {
+			path += "/"
+		}
+		_, _ = fmt.Fprintf(cmd.Writer, "%s\x00%s\x00", [...]string{Added: "+", Removed: "-", Modified: "~"}[item.Type], path)
+		if flat && item.Type == Modified {
+			pathB := item.PathB
+			if pathB == "" {
+				pathB = item.Path
+			}
+			_, _ = fmt.Fprintf(cmd.Writer, "%s\x00", pathB)
 		}
 	}
 }

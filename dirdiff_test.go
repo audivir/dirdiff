@@ -917,3 +917,18 @@ func TestJSONOutput(t *testing.T) {
 		t.Errorf("unexpected report:\n%s", out)
 	}
 }
+
+func TestNullOutput(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "one", "mod file"), "1")
+	createFile(t, filepath.Join(dirB, "two", "mod file"), "2")
+	createFile(t, filepath.Join(dirB, "new\nline"), "x")
+
+	out, _, err := runApp(t, "-z", "--flat", dirA, dirB)
+
+	want := "+\x00new\nline\x00~\x00one/mod file\x00two/mod file\x00"
+	if !errors.Is(err, ErrDiffsFound) || out != want {
+		t.Errorf("got %v: %q, want %q", err, out, want)
+	}
+}
