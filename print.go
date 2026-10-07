@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) error {
+func printAndDetermineExit(results []DiffItem, cmd *cli.Command, showSummary bool) error {
 	// sort alphabetically
 	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
 
@@ -79,18 +79,18 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 	hasRemoved := removedFiles > 0 || removedDirs > 0
 	hasModified := modifiedFiles > 0
 
-	if verbose {
+	if showSummary {
 		_, _ = fmt.Fprintln(cmd.ErrWriter) // spacing
 	}
 
 	if len(results) == 0 {
-		if verbose {
+		if showSummary {
 			green(cmd.ErrWriter, "Directories are identical.\n")
 		}
 		return nil
 	}
 
-	if verbose {
+	if showSummary {
 		var parts []string
 		if modifiedFiles > 0 {
 			parts = append(parts, fmt.Sprintf("%d modified files", modifiedFiles))
@@ -119,19 +119,19 @@ func printAndDetermineExit(results []DiffItem, cmd *cli.Command, verbose bool) e
 	}
 
 	if hasModified || (hasAdded && hasRemoved) {
-		if verbose {
+		if showSummary {
 			red(cmd.ErrWriter, "Directories are divergent.\n")
 		}
 		return ErrDiffsFound
 	}
 	if hasAdded {
-		if verbose {
+		if showSummary {
 			yellow(cmd.ErrWriter, "Directory A is a subset of directory B.\n")
 		}
 		return ErrASubsetB
 	}
 	if hasRemoved {
-		if verbose {
+		if showSummary {
 			yellow(cmd.ErrWriter, "Directory B is a subset of directory A.\n")
 		}
 		return ErrBSubsetA

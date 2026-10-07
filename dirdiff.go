@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,7 +66,15 @@ func isInside(slashPath string, dirSet map[string]bool) bool {
 	return false
 }
 
+// isTerminal reports whether w is a terminal.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
 func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
+	showSummary := args.Verbose || (!cmd.Bool("quiet") && isTerminal(cmd.ErrWriter))
+
 	if !isRemotePath(args.PathA) && !isRemotePath(args.PathB) {
 		absA, errA := filepath.EvalSymlinks(args.PathA)
 		absB, errB := filepath.EvalSymlinks(args.PathB)
@@ -74,7 +83,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 			absB, errB = filepath.Abs(absB)
 		}
 		if errA == nil && errB == nil && absA == absB {
-			if args.Verbose {
+			if showSummary {
 				green := color.New(color.FgGreen).FprintfFunc()
 				green(cmd.ErrWriter, "identical (same path: %s)\n", absA)
 			}
@@ -306,7 +315,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		results = append(results, item)
 	}
 
-	return printAndDetermineExit(results, cmd, args.Verbose)
+	return printAndDetermineExit(results, cmd, showSummary)
 }
 
 // readPassword reads a password from the terminal with echo disabled.

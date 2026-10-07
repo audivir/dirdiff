@@ -38,7 +38,8 @@ Common options:
 - `-t, --tree`: print a side-by-side tree view of the differences.
 - `-a, --show-all`: also traverse files inside added or removed directories.
 - `-q, --quiet`, `-v, --verbose`, `-P, --no-progressbar`, `-C, --no-color`: control
-  output verbosity and styling.
+  output verbosity and styling. A summary is printed to stderr if it is a terminal or with
+  `--verbose`.
 - `-r, --remote-bin`: path to the remote agent binary, once for all hosts or once per host.
 - `-s, --sudo`, `--sudo-a`, `--sudo-b`: escalate privileges via sudo on all remote hosts,
   or only on host A or host B.
