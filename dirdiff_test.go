@@ -447,3 +447,25 @@ func TestIncludeSkipsDirsWithoutMatches(t *testing.T) {
 		t.Errorf("expected only new/ to be added, got %v:\n%s", err, outBuf.String())
 	}
 }
+
+func TestSymlinkDiffersFromFileWithTargetContent(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	createFile(t, filepath.Join(dirA, "k"), "../target")
+	if err := os.MkdirAll(dirB, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../target", filepath.Join(dirB, "k")); err != nil {
+		t.Fatal(err)
+	}
+
+	var outBuf bytes.Buffer
+	app := newApp()
+	app.Writer = &outBuf
+	app.ErrWriter = &bytes.Buffer{}
+	err := app.Run(context.Background(), []string{"dirdiff", "--no-color", "--no-progressbar", dirA, dirB})
+
+	if !errors.Is(err, ErrDiffsFound) || !strings.Contains(outBuf.String(), "~ k") {
+		t.Errorf("expected k to be modified, got %v:\n%s", err, outBuf.String())
+	}
+}

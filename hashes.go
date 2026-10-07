@@ -29,12 +29,13 @@ func computeSparseHash(path string, h hash.Hash, limit int64, followSym bool) (s
 	}
 
 	// If it's a symlink and we aren't following it, hash the target path string instead.
+	// The prefix keeps it distinct from a regular file containing the same string.
 	if info.Mode()&os.ModeSymlink != 0 && !followSym {
 		target, err := os.Readlink(path)
 		if err != nil {
 			return "", err
 		}
-		h.Write([]byte(target))
+		h.Write([]byte("symlink:" + target))
 		return hex.EncodeToString(h.Sum(nil)), nil
 	}
 
