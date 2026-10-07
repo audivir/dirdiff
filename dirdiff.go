@@ -324,21 +324,28 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 		}
 		return errA != nil || errB != nil
 	}
-	progressCh := make(chan struct{}, len(commonJobs))
+	// progressCh receives the size of each compared file, so the bar advances by bytes.
+	progressCh := make(chan int64, len(commonJobs))
 	var barWg sync.WaitGroup
+	var totalBytes int64
+	for _, j := range commonJobs {
+		totalBytes += filesA[j.PathA]
+	}
 
-	if !cmd.Bool("quiet") && !cmd.Bool("no-progressbar") && len(commonJobs) > 0 {
+	if !cmd.Bool("quiet") && !cmd.Bool("no-progressbar") && totalBytes > 0 {
 		barWg.Add(1)
 		go func() {
 			defer barWg.Done()
-			bar := progressbar.NewOptions(len(commonJobs),
-				progressbar.OptionSetDescription("Comparing files"),
+			bar := progressbar.NewOptions64(totalBytes,
+				progressbar.OptionSetDescription("Comparing "+countNoun(len(commonJobs), "file")),
 				progressbar.OptionSetWidth(15),
 				progressbar.OptionSetWriter(cmd.ErrWriter),
-				progressbar.OptionShowBytes(false),
+				progressbar.OptionShowBytes(true),
+				progressbar.OptionShowCount(),
+				progressbar.OptionThrottle(100*time.Millisecond),
 			)
-			for range progressCh {
-				_ = bar.Add(1)
+			for size := range progressCh {
+				_ = bar.Add64(size)
 			}
 			_, _ = fmt.Fprintln(cmd.ErrWriter)
 		}()
@@ -359,7 +366,7 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 	}
 	// finish reports the outcome of one job.
 	finish := func(j CompareJob, equal bool, errA, errB error) {
-		defer func() { progressCh <- struct{}{} }()
+		defer func() { progressCh <- filesA[j.PathA] }()
 		if reportErrs(j, errA, errB) {
 			return
 		}
