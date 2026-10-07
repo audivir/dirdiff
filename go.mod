@@ -1,4 +1,4 @@
-module github.com/audivir/dirdiff
+module github.com/audivir/dirdiff/v2
 
 go 1.26.0
 
