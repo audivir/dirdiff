@@ -30,7 +30,8 @@ Common options:
 - `-i, --include`, `-e, --exclude`: glob patterns to include or exclude files and
   directories from the comparison. Patterns match the relative path, and patterns without
   a `/` also match a name at any depth, as in `.gitignore`.
-- `-w, --workers`: number of parallel workers, defaults to the number of CPUs.
+- `-w, --workers`: number of parallel workers, defaults to 4 (or fewer CPUs) for local paths
+  and 16 with a remote path.
 - `-L, --follow-symlinks`: follow symbolic links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be
   unique on each side.

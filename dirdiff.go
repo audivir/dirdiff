@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -332,6 +333,9 @@ func runMaster(ctx context.Context, args *ParsedArgs, cmd *cli.Command) error {
 
 	var wg sync.WaitGroup
 	workers := int(cmd.Int("workers"))
+	if workers <= 0 {
+		workers = defaultWorkers(isRemotePath(args.PathA) || isRemotePath(args.PathB))
+	}
 
 	for range workers {
 		wg.Add(1)
@@ -443,6 +447,15 @@ func onBothNodes(hashA, hashB func() (string, error)) (string, string, error, er
 	hB, errB := hashB()
 	<-done
 	return hA, hB, errA, errB
+}
+
+// defaultWorkers returns the number of parallel workers. Local file opens contend in the
+// kernel beyond a few threads, while remote requests are latency bound and gain from more.
+func defaultWorkers(remote bool) int {
+	if remote {
+		return 16
+	}
+	return min(4, runtime.NumCPU())
 }
 
 // readPassword reads a password from the terminal with echo disabled.

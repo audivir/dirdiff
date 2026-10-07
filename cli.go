@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 
@@ -84,7 +83,7 @@ func newApp() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "include", Aliases: []string{"i"}, Usage: "Glob patterns to include files/dirs in the comparison"},
 			&cli.StringSliceFlag{Name: "exclude", Aliases: []string{"e"}, Usage: "Glob patterns to exclude files/dirs from the comparison"},
-			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Value: int(runtime.NumCPU()), Usage: "Number of parallel workers"},
+			&cli.IntFlag{Name: "workers", Aliases: []string{"w", "j"}, Usage: "Number of parallel workers (default 4 locally, 16 with a remote path)", HideDefault: true},
 			&cli.BoolFlag{Name: "follow-symlinks", Aliases: []string{"L"}, Usage: "Follow symbolic links"},
 			&cli.BoolFlag{Name: "flat", Usage: "Compare files by name only, ignoring directory structure"},
 			// hashing
