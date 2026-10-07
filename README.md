@@ -32,7 +32,7 @@ Common options:
   a `/` also match a name at any depth, as in `.gitignore`.
 - `-w, --workers`: number of parallel workers, defaults to 4 (or fewer CPUs) for local paths
   and 16 with a remote path.
-- `-L, --follow-symlinks`: follow symbolic links.
+- `-L, --follow-symlinks`: follow symbolic links. Broken or looping links are compared as links.
 - `--flat`: compare files by name only, ignoring directory structure. File names must be
   unique on each side.
 - `-f, --fast`: glob patterns to hash with a faster sparse SHA256, plus

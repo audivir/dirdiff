@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"syscall"
 )
 
 // coreScan scans a directory tree and returns a map of relative file names
@@ -74,7 +77,7 @@ func coreScan(rootDir string, includes, excludes []string, followSym bool) (map[
 
 		var realPath string
 		isSym := info.Mode()&os.ModeSymlink != 0
-		if isSym && followSym {
+		if isSym && followSym && !isBrokenLink(currPath) {
 			realPath, err = filepath.EvalSymlinks(currPath)
 			if err != nil {
 				return fail(err)
@@ -151,4 +154,11 @@ func dirsContaining(dirs []string, files map[string]int64) []string {
 		}
 	}
 	return slices.DeleteFunc(dirs, func(d string) bool { return !used[d] })
+}
+
+// isBrokenLink reports whether the symlink at path points to a missing target or loops.
+// Like find -L, such links are compared as links even when following symlinks.
+func isBrokenLink(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ELOOP)
 }

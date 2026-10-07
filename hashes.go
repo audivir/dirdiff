@@ -31,7 +31,7 @@ func computeSparseHash(path string, h hash.Hash, limit int64, followSym bool) (s
 
 	// If it's a symlink and we aren't following it, hash the target path string instead.
 	// The prefix keeps it distinct from a regular file containing the same string.
-	if info.Mode()&os.ModeSymlink != 0 && !followSym {
+	if info.Mode()&os.ModeSymlink != 0 && (!followSym || isBrokenLink(path)) {
 		target, err := os.Readlink(path)
 		if err != nil {
 			return "", err
@@ -121,17 +121,15 @@ func compareLocal(pathA, pathB string, limit int64, followSym bool) (bool, error
 }
 
 // openForCompare opens path for reading, or returns the link target if path is a symlink
-// that is not followed.
+// that is not followed or is broken.
 func openForCompare(path string, followSym bool) (*os.File, string, error) {
-	if !followSym {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return nil, "", err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(path)
-			return nil, target, err
-		}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 && (!followSym || isBrokenLink(path)) {
+		target, err := os.Readlink(path)
+		return nil, target, err
 	}
 	f, err := os.Open(path)
 	return f, "", err

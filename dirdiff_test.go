@@ -608,3 +608,31 @@ func TestRemoteAgentInstall(t *testing.T) {
 		})
 	}
 }
+
+func TestFollowSymlinksComparesBrokenLinksAsLinks(t *testing.T) {
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for dir, targets := range map[string][2]string{dirA: {"gone-1", "loop"}, dirB: {"gone-1", "loop"}} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(targets[0], filepath.Join(dir, "dangling")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(targets[1], filepath.Join(dir, "loop")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("gone-2", filepath.Join(dirB, "other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("gone-1", filepath.Join(dirA, "other")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, err := runApp(t, "-L", dirA, dirB)
+
+	if !errors.Is(err, ErrDiffsFound) || strings.TrimSpace(out) != "~ other" {
+		t.Errorf("expected only other to differ, got %v:\n%s%s", err, out, errOut)
+	}
+}
