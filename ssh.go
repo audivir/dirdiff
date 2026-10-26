@@ -90,10 +90,10 @@ func (c *sshConn) Close() {
 	}
 	_ = exec.Command("ssh", "-S", c.controlPath, "-O", "exit", c.host).Run()
 	select {
-	case <-c.masterExited:
+	case <-c.masterExited: //nolint:errcheck // the exit status is not needed.
 	case <-time.After(2 * time.Second):
 		_ = c.master.Process.Kill()
-		<-c.masterExited
+		<-c.masterExited //nolint:errcheck // the exit status is not needed.
 	}
 	_ = os.RemoveAll(c.controlDir)
 }

@@ -972,7 +972,7 @@ func TestInterruptExitsWith130(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // the exit status is checked below.
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatal("dirdiff did not exit after the interrupt")
