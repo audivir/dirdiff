@@ -10,3 +10,4 @@ project_name: dirdiff
 project_slug: dirdiff
 project_type: go
 publishable: true
+remove_tabs_extra_exclude: (^|/)go\.(sum|work)$
